@@ -1,7 +1,7 @@
 [
   {
     "path": ".github/workflows/checks.yml",
-    "sha256": "afc4322d3fb39c551bd01c2295a206133e687c487d1f0bcc42408cfb18e36e30"
+    "sha256": "11f7fb2a6e979aedf7b12d81b78f6786f1e886d128b9d7e026b1321a12b3d7cf"
   },
   {
     "path": ".github/workflows/mobile-check.yml",
@@ -261,7 +261,7 @@
   },
   {
     "path": "bridge-src/test/integration.test.js",
-    "sha256": "43110e4a00b88f642169dd040a9e1d26955364d5c2e6e11aa1fa38edc6da6e5f"
+    "sha256": "6cdd9518ea5662fed7e4001c83088440f7a1b0ff4891d920efd843d879e46e9e"
   },
   {
     "path": "bridge-src/test/managed-owner.test.js",

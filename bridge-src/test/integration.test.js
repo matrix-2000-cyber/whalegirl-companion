@@ -166,7 +166,7 @@ test('incoming OneBot video reaches analysis and reports failure in context', as
   await flush()
 })
 
-test('Windows launcher survives plugin unload and repeated launch is guarded', async t => {
+test('Windows launcher survives plugin unload and repeated launch is guarded', { skip: process.platform !== 'win32' }, async t => {
   const f = await fixture(t)
   const result = await f.call('qq_bridge_napcat', { action: 'launch' })
   assert.equal(result.mode, 'independent-launcher')
