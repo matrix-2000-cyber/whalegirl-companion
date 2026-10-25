@@ -1,0 +1,59 @@
+# dsh-qq-bridge bundle patch: one insert row carrying the whole plugin config.
+# 用户在 profile 的 cordis.patch.yml 里按 id 覆盖这一行；patch 会替换整份 config，
+# 所以要保留的键请全部重述。
+- insert:
+    - id: qq-bridge
+      name: dsh-qq-bridge
+      config:
+        # 固定目标会话：QQ 的一切都注入这一个会话（保留其上下文）。
+        # 留空表示不驱动任何会话。
+        targetSessionId: ''
+        # 可选：resume 目标会话时挂载的 agent preset（留空则沿用会话 header 里记录的）。
+        agentPreset: ''
+        # 状态文件（最近聊天缓冲 + 唤醒日志 + 出站目的地）。留空 = $DSH_HOME/qq-bridge-state.json
+        statePath: ''
+        # 注册 qq_bridge_status / qq_bridge_send / qq_bridge_transport / qq_bridge_simulate
+        # 四个调试工具（排障用，正式环境可关）。
+        debugTools: true
+
+        # ── M2：OneBot 传输（NapCat / go-cqhttp）─────────────────────────────
+        # NapCat 的“正向 WebSocket”地址；**留空 = 完全不启用传输**（默认安全）。
+        onebotUrl: ''
+        # 存放 access_token 的**凭据引用名**（就是一个环境变量名），不要明文写 token。
+        # 它会经 ctx.credentials 解析（进程环境 → 凭据存储 → .env），每次建连重新解析。
+        # 设置方式见 README“配置 access_token”。
+        accessTokenEnv: ''
+        # 机器人自己的 QQ 号；留空则连上后自动调 get_login_info 获取。
+        selfId: ''
+        # 回复时引用触发的那条消息（[CQ:reply]）。
+        replyWithQuote: false
+        # 群里只有被 @ 才处理（比概率唤醒更严的一道闸门）。
+        atOnlyInGroup: false
+        # 出站前去掉 Markdown 标记（QQ 不渲染，留着只是噪音）。
+        stripMarkdown: true
+        # 多久没有任何 WS 流量就判定连接已死并重连。
+        heartbeatTimeoutMs: 90000
+
+        # ── M5：NapCat 自助托管（“一键包”体验，但不真打包）─────────────────────
+        # 注意：这些只是**参数**。插件加载时绝不会去下载或执行任何东西，
+        # 一切动作都要靠显式调用 qq_bridge_napcat 工具触发。
+        # NapCat 安装目录；留空 = $DSH_HOME/napcat
+        napcatInstallDir: ''
+        # 要装的版本 tag（如 v4.18.28）；留空 = 最新
+        napcatVersion: ''
+        # 下载用的 HTTP 代理。**本机直连 GitHub 不通**，走代理才行，例如
+        # http://127.0.0.1:7890；留空 = 读 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY 环境变量。
+        downloadProxy: ''
+        # 写进 NapCat 配置、并用来连的正向 WS 端口
+        onebotPort: 3001
+        # 快速登录用的 QQ 号（需先用 QQ 手动成功登录过一次）
+        qqNumber: ''
+
+        # ↓ 以下几项是 settings 命名空间 qq-bridge 的默认值（设置界面可覆盖）
+        nicknames: ['244', '小助手']
+        # 非昵称消息的唤醒概率（5%）
+        wakeProbability: 0.05
+        # ⚠️ 白名单 fail-closed：留空表示任何来源都不能唤醒会话。
+        # 正式使用时填入实际的 QQ openid。
+        whitelist: []
+        groupWhitelist: []

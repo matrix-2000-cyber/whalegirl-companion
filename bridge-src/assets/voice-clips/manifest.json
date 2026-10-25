@@ -1,0 +1,439 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-24T17:23:56+00:00",
+  "styles": {
+    "cute": {
+      "voice": "zh-CN-XiaoyiNeural",
+      "rate": "-6%",
+      "pitch": "+18Hz"
+    },
+    "gentle": {
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "rate": "-8%",
+      "pitch": "+6Hz"
+    }
+  },
+  "clips": [
+    {
+      "name": "laugh_1",
+      "label": "笑",
+      "group": "laugh",
+      "style": "cute",
+      "file": "natural/laugh.mp3",
+      "ms": 1231,
+      "bytes": 15884,
+      "source": "https://freesound.org/people/DarkNightPrincess/sounds/611781/",
+      "author": "DarkNightPrincess",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "laugh_2",
+      "label": "嘿嘿笑",
+      "group": "laugh",
+      "style": "cute",
+      "file": "natural/laugh.mp3",
+      "ms": 1231,
+      "bytes": 15884,
+      "source": "https://freesound.org/people/DarkNightPrincess/sounds/611781/",
+      "author": "DarkNightPrincess",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "giggle",
+      "label": "偷笑",
+      "group": "laugh",
+      "style": "cute",
+      "file": "natural/laugh.mp3",
+      "ms": 1231,
+      "bytes": 15884,
+      "source": "https://freesound.org/people/DarkNightPrincess/sounds/611781/",
+      "author": "DarkNightPrincess",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "cry_1",
+      "label": "哭",
+      "group": "cry",
+      "style": "cute",
+      "file": "natural/cry.mp3",
+      "ms": 2600,
+      "bytes": 32300,
+      "source": "https://freesound.org/people/mvVoiceActing/sounds/218184/",
+      "author": "mvVoiceActing",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "cry_2",
+      "label": "抽泣",
+      "group": "cry",
+      "style": "cute",
+      "file": "natural/cry.mp3",
+      "ms": 2600,
+      "bytes": 32300,
+      "source": "https://freesound.org/people/mvVoiceActing/sounds/218184/",
+      "author": "mvVoiceActing",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "sniff",
+      "label": "吸鼻子",
+      "group": "cry",
+      "style": "cute",
+      "file": "cute/sniff.mp3",
+      "ms": 420,
+      "bytes": 4076
+    },
+    {
+      "name": "sigh_1",
+      "label": "叹气",
+      "group": "sigh",
+      "style": "cute",
+      "file": "natural/sigh.mp3",
+      "ms": 867,
+      "bytes": 11564,
+      "source": "https://freesound.org/people/DarkNightPrincess/sounds/621773/",
+      "author": "DarkNightPrincess",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "sigh_2",
+      "label": "轻叹",
+      "group": "sigh",
+      "style": "cute",
+      "file": "natural/sigh.mp3",
+      "ms": 867,
+      "bytes": 11564,
+      "source": "https://freesound.org/people/DarkNightPrincess/sounds/621773/",
+      "author": "DarkNightPrincess",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "happy_1",
+      "label": "开心",
+      "group": "happy",
+      "style": "cute",
+      "file": "natural/laugh.mp3",
+      "ms": 1231,
+      "bytes": 15884,
+      "source": "https://freesound.org/people/DarkNightPrincess/sounds/611781/",
+      "author": "DarkNightPrincess",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "happy_2",
+      "label": "欢呼",
+      "group": "happy",
+      "style": "cute",
+      "file": "cute/happy_2.mp3",
+      "ms": 471,
+      "bytes": 4460
+    },
+    {
+      "name": "angry_1",
+      "label": "生气",
+      "group": "angry",
+      "style": "cute",
+      "file": "cute/angry_1.mp3",
+      "ms": 491,
+      "bytes": 4652
+    },
+    {
+      "name": "surprise_1",
+      "label": "惊讶",
+      "group": "surprise",
+      "style": "cute",
+      "file": "cute/surprise_1.mp3",
+      "ms": 453,
+      "bytes": 4268
+    },
+    {
+      "name": "surprise_2",
+      "label": "疑问",
+      "group": "surprise",
+      "style": "cute",
+      "file": "cute/surprise_2.mp3",
+      "ms": 410,
+      "bytes": 4076
+    },
+    {
+      "name": "hum_1",
+      "label": "嗯",
+      "group": "gentle",
+      "style": "cute",
+      "file": "cute/hum_1.mp3",
+      "ms": 570,
+      "bytes": 5228
+    },
+    {
+      "name": "sleepy_1",
+      "label": "困",
+      "group": "gentle",
+      "style": "cute",
+      "file": "cute/sleepy_1.mp3",
+      "ms": 1063,
+      "bytes": 9260
+    },
+    {
+      "name": "call_1",
+      "label": "撒娇",
+      "group": "gentle",
+      "style": "cute",
+      "file": "cute/call_1.mp3",
+      "ms": 849,
+      "bytes": 7532
+    },
+    {
+      "name": "laugh_1",
+      "label": "笑",
+      "group": "laugh",
+      "style": "gentle",
+      "file": "natural/laugh.mp3",
+      "ms": 1231,
+      "bytes": 15884,
+      "source": "https://freesound.org/people/DarkNightPrincess/sounds/611781/",
+      "author": "DarkNightPrincess",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "laugh_2",
+      "label": "嘿嘿笑",
+      "group": "laugh",
+      "style": "gentle",
+      "file": "natural/laugh.mp3",
+      "ms": 1231,
+      "bytes": 15884,
+      "source": "https://freesound.org/people/DarkNightPrincess/sounds/611781/",
+      "author": "DarkNightPrincess",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "giggle",
+      "label": "偷笑",
+      "group": "laugh",
+      "style": "gentle",
+      "file": "natural/laugh.mp3",
+      "ms": 1231,
+      "bytes": 15884,
+      "source": "https://freesound.org/people/DarkNightPrincess/sounds/611781/",
+      "author": "DarkNightPrincess",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "cry_1",
+      "label": "哭",
+      "group": "cry",
+      "style": "gentle",
+      "file": "natural/cry.mp3",
+      "ms": 2600,
+      "bytes": 32300,
+      "source": "https://freesound.org/people/mvVoiceActing/sounds/218184/",
+      "author": "mvVoiceActing",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "cry_2",
+      "label": "抽泣",
+      "group": "cry",
+      "style": "gentle",
+      "file": "natural/cry.mp3",
+      "ms": 2600,
+      "bytes": 32300,
+      "source": "https://freesound.org/people/mvVoiceActing/sounds/218184/",
+      "author": "mvVoiceActing",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "sniff",
+      "label": "吸鼻子",
+      "group": "cry",
+      "style": "gentle",
+      "file": "gentle/sniff.mp3",
+      "ms": 415,
+      "bytes": 4076
+    },
+    {
+      "name": "sigh_1",
+      "label": "叹气",
+      "group": "sigh",
+      "style": "gentle",
+      "file": "natural/sigh.mp3",
+      "ms": 867,
+      "bytes": 11564,
+      "source": "https://freesound.org/people/DarkNightPrincess/sounds/621773/",
+      "author": "DarkNightPrincess",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "sigh_2",
+      "label": "轻叹",
+      "group": "sigh",
+      "style": "gentle",
+      "file": "natural/sigh.mp3",
+      "ms": 867,
+      "bytes": 11564,
+      "source": "https://freesound.org/people/DarkNightPrincess/sounds/621773/",
+      "author": "DarkNightPrincess",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "happy_1",
+      "label": "开心",
+      "group": "happy",
+      "style": "gentle",
+      "file": "natural/laugh.mp3",
+      "ms": 1231,
+      "bytes": 15884,
+      "source": "https://freesound.org/people/DarkNightPrincess/sounds/611781/",
+      "author": "DarkNightPrincess",
+      "license": "CC0-1.0",
+      "recording": "human-performance"
+    },
+    {
+      "name": "happy_2",
+      "label": "欢呼",
+      "group": "happy",
+      "style": "gentle",
+      "file": "gentle/happy_2.mp3",
+      "ms": 541,
+      "bytes": 5036
+    },
+    {
+      "name": "angry_1",
+      "label": "生气",
+      "group": "angry",
+      "style": "gentle",
+      "file": "gentle/angry_1.mp3",
+      "ms": 580,
+      "bytes": 5420
+    },
+    {
+      "name": "surprise_1",
+      "label": "惊讶",
+      "group": "surprise",
+      "style": "gentle",
+      "file": "gentle/surprise_1.mp3",
+      "ms": 575,
+      "bytes": 5228
+    },
+    {
+      "name": "surprise_2",
+      "label": "疑问",
+      "group": "surprise",
+      "style": "gentle",
+      "file": "gentle/surprise_2.mp3",
+      "ms": 563,
+      "bytes": 5228
+    },
+    {
+      "name": "hum_1",
+      "label": "嗯",
+      "group": "gentle",
+      "style": "gentle",
+      "file": "gentle/hum_1.mp3",
+      "ms": 631,
+      "bytes": 5804
+    },
+    {
+      "name": "sleepy_1",
+      "label": "困",
+      "group": "gentle",
+      "style": "gentle",
+      "file": "gentle/sleepy_1.mp3",
+      "ms": 1336,
+      "bytes": 11372
+    }
+  ],
+  "groups": {
+    "laugh": [
+      "laugh_1",
+      "laugh_2",
+      "giggle"
+    ],
+    "cry": [
+      "cry_1",
+      "cry_2",
+      "sniff"
+    ],
+    "sigh": [
+      "sigh_1",
+      "sigh_2"
+    ],
+    "happy": [
+      "happy_1",
+      "happy_2"
+    ],
+    "angry": [
+      "angry_1"
+    ],
+    "surprise": [
+      "surprise_1",
+      "surprise_2"
+    ],
+    "gentle": [
+      "hum_1",
+      "sleepy_1",
+      "call_1"
+    ]
+  },
+  "skipped": [
+    {
+      "name": "call_1",
+      "style": "gentle",
+      "reason": "cute-only"
+    }
+  ],
+  "naturalRecordings": {
+    "installedAt": "2026-10-25T05:43:38.581Z",
+    "quality": "Freesound public MP3 previews",
+    "license": "CC0-1.0",
+    "sources": {
+      "laugh": {
+        "id": 611781,
+        "author": "DarkNightPrincess",
+        "url": "https://freesound.org/people/DarkNightPrincess/sounds/611781/",
+        "names": [
+          "laugh_1",
+          "laugh_2",
+          "giggle",
+          "happy_1"
+        ],
+        "duration": 1.65
+      },
+      "sigh": {
+        "id": 621773,
+        "author": "DarkNightPrincess",
+        "url": "https://freesound.org/people/DarkNightPrincess/sounds/621773/",
+        "names": [
+          "sigh_1",
+          "sigh_2"
+        ],
+        "duration": 1.4
+      },
+      "cry": {
+        "id": 218184,
+        "author": "mvVoiceActing",
+        "url": "https://freesound.org/people/mvVoiceActing/sounds/218184/",
+        "names": [
+          "cry_1",
+          "cry_2"
+        ],
+        "duration": 2.6
+      }
+    }
+  }
+}

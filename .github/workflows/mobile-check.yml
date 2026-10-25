@@ -1,0 +1,21 @@
+name: Manual unsigned iOS build
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.8'
+          channel: stable
+          cache: true
+      - run: bash gen/build-ios.sh
+      - run: ditto -c -k --sequesterRsrc --keepParent mobile-app/build/ios/iphoneos/Runner.app whalegirl-ios-unsigned.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whalegirl-ios-UNSIGNED-not-installable
+          path: whalegirl-ios-unsigned.zip

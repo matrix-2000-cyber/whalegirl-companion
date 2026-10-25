@@ -1,0 +1,1 @@
+{"name":"whalegirl-desktop","private":true,"type":"module","scripts":{"start":"node server.mjs","test":"node --test --test-isolation=none test/*.test.mjs"}}

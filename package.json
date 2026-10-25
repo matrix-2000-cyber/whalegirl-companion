@@ -1,0 +1,12 @@
+{
+  "name": "whalegirl-companion",
+  "version": "0.3.2",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "node --test --test-isolation=none desktop-app/test/*.test.mjs mobile-gateway/test/*.test.mjs",
+    "test:bridge": "node --experimental-vm-modules --test --test-isolation=none bridge-src/test/*.test.js"
+  }
+}

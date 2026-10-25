@@ -1,0 +1,949 @@
+/**
+ * dsh-qq-bridge —— 浏览器半（client half）
+ *
+ * 作用：在 **设置 → 插件 → 插件配置** 里放一张名为“QQ 桥接”的卡片，
+ * 用来改昵称、白名单、唤醒概率、目标会话这些设置 —— 也就是用户要的那个界面。
+ *
+ * 为什么这里的东西长得不像源码：
+ *   DSH 的官方文档明确说，本仓库之外没有现成的 client 打包预设
+ *   （`packages/client/tsdown.client.ts` 不发布），外部插件得自己复刻产物格式。
+ *   好在格式很简单：`window.__ModuleLoader__.load({ id, factory })`，
+ *   `factory(require)` 返回一个带 `apply` / `inject` 的 Cordis 插件。
+ *   这里就是**手写**这个格式，不引入任何构建步骤。
+ *   参考实现：第三方插件 `dshmarket` 的 `client/client.js`（同样是手写/预构建产物）。
+ *
+ * 与宿主半的约定：
+ *   - `id` 必须等于包名 `dsh-qq-bridge`；
+ *   - 卡片注册进 `settings.plugin.item`，**key 必须等于宿主注册的 settings 命名空间** `qq-bridge`，
+ *     否则配置页那一栏里什么都不会出现（它按命名空间派发）。
+ */
+window.__ModuleLoader__.load({
+  id: 'dsh-qq-bridge',
+  factory: (require) => {
+    var module = { exports: {} }
+    var exports = module.exports
+    Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
+
+    // react 是模块表里的 baseline 依赖，不用在 package.json 里声明 external。
+    const react = require('react')
+    const h = react.createElement
+
+    /** settings 命名空间，必须与 index.js 里的 NS 一致。 */
+    const NS = 'qq-bridge'
+
+    // ── 表单描述 ──────────────────────────────────────────────────────────────
+    // 加一个设置项 = 在这里加一行。kind: text | list | number | boolean | select
+    const FIELDS = [
+      {
+        key: 'targetSessionId',
+        label: '目标会话',
+        kind: 'session',
+        hint: '要接管哪个会话 —— 按名字选就行，不用记 id。',
+      },
+      {
+        key: 'nicknames',
+        label: '昵称',
+        kind: 'list',
+        hint: '被叫到这些名字必然唤醒；逗号分隔，例如：244, 小助手。',
+      },
+      {
+        key: 'wakeProbability',
+        label: '唤醒概率',
+        kind: 'number',
+        step: '0.01',
+        hint: '既没被 @ 也没叫名字时的唤醒概率（0–1）。默认 0.05 = 5%；嫌耗 token 就调小。',
+      },
+      {
+        key: 'whitelist',
+        label: '私聊白名单',
+        kind: 'list',
+        hint: '允许唤醒的私聊 QQ 号；**空 = 谁都不能唤醒**。',
+      },
+      {
+        key: 'groupWhitelist',
+        label: '群白名单',
+        kind: 'list',
+        hint: '允许唤醒的群号；**空 = 任何群都不唤醒**。',
+      },
+      {
+        key: 'atOnlyInGroup',
+        label: '群里只认 @',
+        kind: 'boolean',
+        hint: '开启后，群里没被 @ 就完全不处理（比概率唤醒更严）。',
+      },
+      {
+        key: 'replyMode',
+        label: '出站方式',
+        kind: 'select',
+        options: [
+          ['marker', '标记块（默认）'],
+          ['tool', '工具调用'],
+          ['always', '整轮都发'],
+        ],
+        hint: '标记块 = 只发块里的内容；工具调用 = 关掉标记块、改用 qq_bridge_send 发送（每轮多一次模型调用，但发不出去时有明确反馈）；整轮都发 = 技术内容也会进群，慎用。',
+      },
+      {
+        key: 'delivery',
+        label: '投递方式',
+        kind: 'select',
+        options: [
+          ['auto', '按序处理（防串聊）'],
+          ['followup', '排队'],
+          ['steer', '按序处理（兼容旧设置）'],
+        ],
+        hint: '为避免多人串聊，所有选项均按顺序处理，每轮固定回复对象。',
+      },
+      { key: 'replyWithQuote', label: '引用原消息', kind: 'boolean', hint: '回复时引用触发的那条消息。' },
+      { key: 'stripMarkdown', label: '去掉 Markdown', kind: 'boolean', hint: '出站前去掉 Markdown 标记（QQ 不渲染）。' },
+      {
+        key: 'replyMaxChars',
+        label: '单条消息字数',
+        kind: 'number',
+        hint: '固定每条最多 20 字；一轮最多 6 条，包含表情和图片。',
+      },
+      {
+        key: 'onebotUrl',
+        label: 'OneBot 地址',
+        kind: 'text',
+        hint: 'NapCat 的正向 WS 地址，如 ws://127.0.0.1:3001；留空 = 完全不启用传输。',
+      },
+      {
+        key: 'accessTokenEnv',
+        label: 'OneBot Token 凭据名',
+        kind: 'text',
+        hint: '指 **NapCat / OneBot 的 access_token** 存在哪个环境变量里 —— 填「变量名」（如 NAPCAT_TOKEN），不是 token 本身；NapCat 没开 token 校验就留空。⚠️ 不是模型 API key（DeepSeek 等），两者无关，别填错。',
+        check: (v) => {
+          const s = String(v ?? '').trim()
+          if (s === '') return null
+          if (/^(sk-|Bearer\s)/i.test(s) || s.length > 64 || /[.\s]/.test(s)) {
+            return '这看起来像一串 token —— 这一栏要填的是「存它的环境变量名」（如 NAPCAT_TOKEN），不是 token 本身。'
+          }
+          return null
+        },
+      },
+      { key: 'selfId', label: '机器人 QQ', kind: 'text', hint: '留空 = 连上后自动获取。' },
+      // ↓ 这些键以前只在 Schema 里、卡片上没做输入框，等于“设了也改不了”（用户报的正是这个）
+      {
+        key: 'visionModel',
+        label: '识图模型',
+        kind: 'text',
+        hint: '给图片写描述的多模态模型，形如 provider/model（如 deepseek-official/deepseek-v4-flash-vision-exp）；留空 = 自动找（优先名字带 vision 的）。',
+      },
+      {
+        key: 'agentPreset',
+        label: 'Agent Preset',
+        kind: 'text',
+        hint: '恢复目标会话时挂载哪个 preset（决定它的人设/人格）；留空 = 沿用会话自己记着的那个。',
+      },
+      { key: 'attachRecentChat', label: '附带未唤醒记录', kind: 'boolean', hint: '唤醒时是否把"未唤醒期间"的聊天记录一并附上。' },
+      { key: 'recentChatLimit', label: '附带条数', kind: 'number', hint: '上面那段摘要最多带最近几条（0–200）。' },
+      { key: 'napcatInstallDir', label: 'NapCat 目录', kind: 'text', hint: 'NapCat 安装目录；留空 = $DSH_HOME/napcat。' },
+      { key: 'napcatVersion', label: 'NapCat 版本', kind: 'text', hint: '要下载的版本 tag（如 v4.18.28）；留空 = 最新。' },
+      { key: 'downloadProxy', label: '下载代理', kind: 'text', hint: '下载 NapCat 用的 HTTP 代理（如 http://127.0.0.1:7890）；留空 = 读环境变量。' },
+      { key: 'onebotPort', label: 'OneBot 端口', kind: 'number', hint: '写进 NapCat 配置、并用来连的正向 WS 端口。' },
+      { key: 'qqNumber', label: '快速登录 QQ', kind: 'text', hint: '快速登录用的 QQ 号（需先成功登录过一次）。' },
+    ]
+
+    function format(field, raw) {
+      if (field.kind === 'list') return Array.isArray(raw) ? raw.join(', ') : raw == null ? '' : String(raw)
+      if (field.kind === 'boolean') return raw === true
+      if (field.kind === 'number') return raw == null || raw === '' ? '' : String(raw)
+      return raw == null ? '' : String(raw)
+    }
+
+    /** 表单值 → 要写进设置的 JSON；数字不合法返回 undefined（拦住保存）。 */
+    function parse(field, raw) {
+      if (field.kind === 'list') {
+        return String(raw == null ? '' : raw)
+          .split(/[,，\s]+/)
+          .map((s) => s.trim())
+          .filter((s) => s !== '')
+      }
+      if (field.kind === 'boolean') return raw === true
+      if (field.kind === 'number') {
+        const n = Number(raw)
+        return Number.isFinite(n) ? n : undefined
+      }
+      return String(raw == null ? '' : raw).trim()
+    }
+
+    function draftFrom(value) {
+      const v = value && typeof value === 'object' ? value : {}
+      const draft = {}
+      for (const f of FIELDS) draft[f.key] = format(f, v[f.key])
+      return draft
+    }
+
+    function same(a, b) {
+      return JSON.stringify(a) === JSON.stringify(b)
+    }
+
+    /**
+     * 会话下拉的选项：真实的会话列表 + “不驱动”+ 一个兜底项。
+     *
+     * **归档的会话不列出来**（用户报的 bug：下拉里混进了一堆早就归档的会话）——
+     * 归档集在 workspace 域：`ctx.workspaces.list.getSnapshot().archivedSessionIds`。
+     *
+     * ⚠️ **TODO（下次修）：子代理会话也会被列进来。**
+     * `SessionSummary` 上有 `origin?: 'subagent'` 与 `parentId?: SessionId`
+     * （见 `@deepseek-ai/dsh-api-session-controller` 的 `SessionSummary`），据此可以剔除。
+     * 剔除之后同样要给**当前选中项**兜底，规则与下面的归档处理一致 ——
+     * 否则子代理会话是当前目标时，一保存就把目标会话清空。
+     * 退化做法也可接受：把它们折叠进一个“显示子代理会话”的展开项，别一次铺开一长串。
+     *
+     * 两个兜底项都是必要的：
+     * - 配置里那个 id 可能**不在**列表里（别的工作区、宿主还没加载完）；
+     * - 也可能**正好是归档的**（用户刚把它归档了）。
+     * 两种都必须保留成选项，否则用户一保存就把目标会话清空了。
+     */
+    function sessionOptions(state, current, archivedIds) {
+      const archived = new Set((Array.isArray(archivedIds) ? archivedIds : []).map((id) => String(id)))
+      const out = [{ value: '', label: '（不驱动任何会话）' }]
+      const ids = Array.isArray(state?.ids) ? state.ids : []
+      const byId = state && typeof state.byId === 'object' && state.byId ? state.byId : {}
+      const cur = String(current ?? '')
+      const seen = new Set([''])
+      for (const id of ids) {
+        const key = String(id)
+        const isArchived = archived.has(key)
+        // 归档的一律不显示 —— 除非它就是当前选中的那个（不显示的话就没法保留/换掉了）
+        if (isArchived && key !== cur) continue
+        seen.add(key)
+        const row = byId[id] ?? {}
+        const title = typeof row.displayTitle === 'string' && row.displayTitle !== '' ? row.displayTitle : key
+        out.push({
+          value: key,
+          label: `${title}${row.running ? '（运行中）' : ''}${isArchived ? '（已归档）' : ''}`,
+        })
+      }
+      if (cur !== '' && !seen.has(cur)) {
+        out.push({ value: cur, label: `${cur}（${archived.has(cur) ? '已归档' : '不在会话列表里'}）` })
+      }
+      return out
+    }
+
+    /** 没有 sessions / workspaces 服务（或它们还没就绪）时用的稳定空快照 —— 必须稳定，否则 useSyncExternalStore 会死循环。 */
+    const EMPTY_SESSION_LIST = { ids: [], byId: {} }
+    const EMPTY_WORKSPACES = { archivedSessionIds: [] }
+
+    // ── 样式（内联，跟随主题文字色） ──────────────────────────────────────────
+    const BORDER = '1px solid rgba(127,127,127,0.35)'
+    const S = {
+      wrap: { display: 'flex', flexDirection: 'column', gap: '10px' },
+      head: { display: 'flex', flexDirection: 'column', gap: '2px' },
+      title: { fontSize: '14px', fontWeight: 600 },
+      sub: { fontSize: '12px', opacity: 0.65, lineHeight: 1.5 },
+      grid: { display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) 1fr', gap: '8px 12px', alignItems: 'start' },
+      label: { fontSize: '13px', paddingTop: '5px' },
+      input: {
+        width: '100%',
+        boxSizing: 'border-box',
+        padding: '5px 8px',
+        borderRadius: '6px',
+        border: BORDER,
+        background: 'transparent',
+        color: 'inherit',
+        font: 'inherit',
+        fontSize: '13px',
+      },
+      hint: { fontSize: '11px', opacity: 0.55, marginTop: '3px', lineHeight: 1.5 },
+      check: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', paddingTop: '4px' },
+      foot: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' },
+      btn: {
+        padding: '5px 14px',
+        borderRadius: '6px',
+        border: BORDER,
+        background: 'transparent',
+        color: 'inherit',
+        cursor: 'pointer',
+        font: 'inherit',
+        fontSize: '13px',
+      },
+      primary: { background: 'rgba(127,127,127,0.18)', fontWeight: 600 },
+      header: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        width: '100%',
+        padding: '8px 10px',
+        borderRadius: '6px',
+        border: BORDER,
+        background: 'transparent',
+        color: 'inherit',
+        cursor: 'pointer',
+        font: 'inherit',
+        textAlign: 'left',
+      },
+      chevron: { marginLeft: 'auto', opacity: 0.6 },
+      note: { fontSize: '12px', opacity: 0.7 },
+      err: { fontSize: '12px', color: '#e5534b' },
+      overridden: { fontSize: '11px', opacity: 0.5, marginLeft: '4px' },
+      // “撤销覆盖”：与“·已覆盖”并排的小按钮。文案本身就是动作，不加图标。
+      link: {
+        marginLeft: '4px',
+        padding: '0 4px',
+        border: 'none',
+        background: 'transparent',
+        color: 'inherit',
+        opacity: 0.75,
+        textDecoration: 'underline',
+        cursor: 'pointer',
+        font: 'inherit',
+        fontSize: '11px',
+      },
+      ops: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
+    }
+
+    function disabled(btn, off) {
+      return off ? { ...btn, opacity: 0.5, cursor: 'default' } : btn
+    }
+
+    // ── 卡片 ──────────────────────────────────────────────────────────────────
+
+    function Card(props) {
+      const scope = props.scope
+      const subscribe = react.useCallback((cb) => scope.subscribe(cb), [scope])
+      const getSnapshot = react.useCallback(() => scope.getSnapshot(), [scope])
+      const snap = react.useSyncExternalStore(subscribe, getSnapshot)
+
+      const [draft, setDraft] = react.useState(null)
+      const [busy, setBusy] = react.useState(false)
+      const [error, setError] = react.useState('')
+      const [note, setNote] = react.useState('')
+      // 折叠块：跟官方那几张卡片一致 —— 默认收起
+      const [open, setOpen] = react.useState(false)
+      // NapCat 的三个操作按钮：展开时拉一次接口；拿不到就保持 null（按钮禁用）。
+      const [napcat, setNapcat] = react.useState(null)
+      const [napcatBusy, setNapcatBusy] = react.useState('')
+
+      const current = react.useMemo(() => draftFrom(snap.value), [snap.value])
+      const shown = draft ?? current
+      const dirty = draft !== null && !same(draft, current)
+      const user = snap.user && typeof snap.user === 'object' ? snap.user : {}
+
+      // ── 目标会话的下拉数据源 ──────────────────────────────────────────────
+      // ctx.sessions.list 是客户端 SDK 暴露的会话列表快照（ObservableSnapshot）。
+      // 取不到（这个部署没装 sessions 服务、或它还没就绪）就退回“只有兜底项”，
+      // 卡片本身照常渲染 —— 宁可少一个下拉，也不要整张卡片消失。
+      const sessions = props.sessionsOf ? props.sessionsOf() : undefined
+      const listStore = sessions && sessions.list && typeof sessions.list.getSnapshot === 'function' ? sessions.list : undefined
+      const listSubscribe = react.useCallback((cb) => (listStore ? listStore.subscribe(cb) : () => {}), [listStore])
+      const listGetSnapshot = react.useCallback(
+        () => (listStore ? listStore.getSnapshot() : EMPTY_SESSION_LIST),
+        [listStore],
+      )
+      const sessionList = react.useSyncExternalStore(listSubscribe, listGetSnapshot)
+      react.useEffect(() => {
+        // 进卡片时拉一次，免得显示的是很久以前的标题
+        if (sessions && typeof sessions.refresh === 'function') Promise.resolve(sessions.refresh()).catch(() => {})
+      }, [sessions])
+
+      // 归档集在 workspace 域：ctx.workspaces.list 的快照里有 archivedSessionIds
+      //（“Complete registry-global archive set”）。取不到就当作“没有归档的会话”——
+      // 宁可多列几个，也别把用户能选的会话藏掉。
+      const workspaces = props.workspacesOf ? props.workspacesOf() : undefined
+      const wsStore =
+        workspaces && workspaces.list && typeof workspaces.list.getSnapshot === 'function' ? workspaces.list : undefined
+      const wsSubscribe = react.useCallback((cb) => (wsStore && typeof wsStore.subscribe === 'function' ? wsStore.subscribe(cb) : () => {}), [wsStore])
+      const wsGetSnapshot = react.useCallback(() => {
+        if (!wsStore) return EMPTY_WORKSPACES
+        try {
+          return wsStore.getSnapshot() ?? EMPTY_WORKSPACES
+        } catch {
+          return EMPTY_WORKSPACES
+        }
+      }, [wsStore])
+      const workspaceSnapshot = react.useSyncExternalStore(wsSubscribe, wsGetSnapshot)
+
+      /**
+       * 拉一次 NapCat 状态（WebUI 地址 + 是否在运行）。
+       * 没有 fetch 或响应不是 ok:true 时返回 undefined，调用方保持上一次的状态。
+       */
+      async function fetchNapcat() {
+        if (typeof fetch !== 'function') return undefined
+        const res = await fetch(NAPCAT_API, { headers: { accept: 'application/json' } })
+        const body = await res.json().catch(() => ({}))
+        return body && body.ok === true ? body : undefined
+      }
+
+      // 展开卡片时读一次 NapCat 状态，之后每 5 秒轮询一次。
+      // 轮询用于识别外部启动：用户在别处手动跑了 bat 时，只有重新拉取才能把按钮改成“已在运行”。
+      // 卡片收起或组件卸载时清掉定时器，不让它在后台一直跑。
+      react.useEffect(() => {
+        if (!open) return undefined
+        let alive = true
+        const pull = () => {
+          fetchNapcat()
+            .then((body) => {
+              if (alive && body !== undefined) setNapcat(body)
+            })
+            .catch(() => {
+              // 单次失败保留上一次的状态：轮询会再试，不给按钮闪一下禁用。
+            })
+        }
+        pull()
+        const timer = setInterval(pull, 5000)
+        return () => {
+          alive = false
+          clearInterval(timer)
+        }
+      }, [open])
+
+      /** 两个 POST 按钮共用：动作没成（ok:false）也把宿主的 error 原文显示出来。 */
+      async function postNapcat(action, okNote) {
+        setNapcatBusy(action)
+        setError('')
+        setNote('')
+        try {
+          if (typeof fetch !== 'function') throw new Error('这个环境没有 fetch')
+          // 显式声明 JSON：宿主接口对**带请求体**的 POST 只认 application/json。
+          // 这两个动作本身没有请求体，服务端也放行无体的 POST —— 那条是给还没刷新的旧 bundle 兜底。
+          const res = await fetch(`${NAPCAT_API}/${action}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+          })
+          const body = await res.json().catch(() => ({}))
+          if (!res.ok || body?.ok !== true) throw new Error(String(body?.error || `HTTP ${res.status}`))
+          setNote(String(body?.message || okNote))
+        } catch (e) {
+          setError(String((e && e.message) || e))
+        } finally {
+          setNapcatBusy('')
+          // 成功或失败都重拉一次：启动成功后按钮要立刻变“已在运行”，
+          // 被宿主拒绝（例如已在运行）时也要把真实状态显示出来。
+          try {
+            const fresh = await fetchNapcat()
+            if (fresh !== undefined) setNapcat(fresh)
+          } catch {
+            // 拉取失败时保留上一次的状态
+          }
+        }
+      }
+
+      function change(key) {
+        return (event) => {
+          const next = { ...shown }
+          next[key] = event.target.type === 'checkbox' ? event.target.checked : event.target.value
+          setDraft(next)
+          setNote('')
+          setError('')
+        }
+      }
+
+      async function save() {
+        setBusy(true)
+        setError('')
+        setNote('')
+        try {
+          const writes = []
+          for (const f of FIELDS) {
+            if (same(current[f.key], shown[f.key])) continue
+            const next = parse(f, shown[f.key])
+            if (next === undefined) throw new Error(`「${f.label}」不是合法数字`)
+            writes.push([f.key, next])
+          }
+          for (const [key, value] of writes) await scope.set(key, value)
+          setDraft(null)
+          setNote(writes.length === 0 ? '没有改动' : `已保存 ${writes.length} 项`)
+        } catch (e) {
+          setError(String((e && e.message) || e))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      /**
+       * 撤销一个字段的本机覆盖。
+       *
+       * 设置读取优先级是“设置文件 > composition config”。卡片只发 set 时，
+       * 用户从插件配置页改的值会被设置文件里的旧值盖住，且没有地方撤销。
+       * 这里走设置源的 unset：清掉那一项，该键回落到 composition config 的值，
+       * 刷新后“·已覆盖”标记消失。
+       */
+      async function unsetOverride(key) {
+        const field = FIELDS.find((f) => f.key === key)
+        setBusy(true)
+        setError('')
+        setNote('')
+        try {
+          if (typeof scope.unset !== 'function') throw new Error('这个设置源不支持撤销覆盖')
+          await scope.unset(key)
+          setDraft(null)
+          setNote(`已撤销「${field ? field.label : key}」的本机覆盖`)
+        } catch (e) {
+          setError(String((e && e.message) || e))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      if (snap.status === 'loading') {
+        return h('div', { style: S.wrap }, h('div', { style: S.sub }, '载入设置中…'))
+      }
+      if (snap.status === 'unavailable') {
+        return h(
+          'div',
+          { style: S.wrap },
+          h('div', { style: S.title }, 'QQ 桥接'),
+          h(
+            'div',
+            { style: S.sub },
+            '这个部署没有为 qq-bridge 提供可写的设置服务（settings 提供者没挂载，或连接处于内存模式）。',
+          ),
+          h(
+            'div',
+            { style: S.hint },
+            '宿主的两条设置通道都没拿到：插件配置表单（DSH 0.2.0 的 #677 迁移未完成）与本插件的本机设置接口。',
+          ),
+          h(
+            'div',
+            { style: S.hint },
+            '先看诊断里「本机接口」那项：若宿主没有 webServer 服务，接口挂不上（此时仍可点右上角「打开配置文件」，改 profile 的 cordis.patch.yml 里 `- id: qq-bridge` 的 config 后重启）。',
+          ),
+          h(
+            'div',
+            { style: S.hint },
+            `诊断：${typeof scope.detail === 'function' ? scope.detail() : '（无诊断信息）'}`,
+          ),
+        )
+      }
+
+      const rows = []
+      for (const f of FIELDS) {
+        const value = shown[f.key]
+        const overridden = Object.prototype.hasOwnProperty.call(user, f.key)
+        let control
+        if (f.kind === 'boolean') {
+          control = h(
+            'label',
+            { style: S.check },
+            h('input', {
+              type: 'checkbox',
+              checked: value === true,
+              disabled: !snap.writable || busy || f.key === 'replyMaxChars',
+              onChange: change(f.key),
+            }),
+            h('span', null, f.hint || ''),
+          )
+        } else if (f.kind === 'select') {
+          control = h(
+            'select',
+            { style: S.input, value: String(value), disabled: !snap.writable || busy || f.key === 'replyMaxChars', onChange: change(f.key) },
+            (f.options || []).map(([v, text]) => h('option', { key: v, value: v }, text)),
+          )
+        } else if (f.kind === 'session') {
+          control = h(
+            'select',
+            { style: S.input, value: String(value), disabled: !snap.writable || busy || f.key === 'replyMaxChars', onChange: change(f.key) },
+            sessionOptions(sessionList, value, workspaceSnapshot?.archivedSessionIds).map((o) =>
+              h('option', { key: o.value || '(none)', value: o.value }, o.label),
+            ),
+          )
+        } else {
+          control = h('input', {
+            type: f.kind === 'number' ? 'number' : 'text',
+            ...(f.step ? { step: f.step } : {}),
+            style: S.input,
+            value: String(value),
+            disabled: !snap.writable || busy || f.key === 'replyMaxChars',
+            onChange: change(f.key),
+            spellCheck: false,
+          })
+        }
+        rows.push(
+          h(
+            'div',
+            { key: f.key, style: S.label },
+            f.label,
+            overridden ? h('span', { style: S.overridden }, '·已覆盖') : null,
+            // 每个字段都有自己的标签格，所以逐字段放按钮对所有类型都成立 —— 不必只给一个统一按钮。
+            overridden
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    style: disabled(S.link, busy || !snap.writable),
+                    disabled: busy || !snap.writable,
+                    title: '清掉设置文件里的这一项，回落到 composition config 的值',
+                    onClick: () => unsetOverride(f.key),
+                  },
+                  '撤销覆盖',
+                )
+              : null,
+          ),
+        )
+        rows.push(
+          h(
+            'div',
+            { key: `${f.key}-ctl` },
+            control,
+            f.kind !== 'boolean' && f.hint
+              ? h(
+                  'div',
+                  { style: S.hint },
+                  // 会话下拉额外把真实 id 显示出来：看着名字选，但真要手抄/核对时 id 就在旁边
+                  (f.kind === 'session' && String(value) !== '' ? `${f.hint}当前：${value}` : f.hint) +
+                    (typeof f.check === 'function' && f.check(value) ? `\n⚠️ ${f.check(value)}` : ''),
+                )
+              : null,
+          ),
+        )
+      }
+
+      // “打开 WebUI”只在真读到 webui.json 时可点 —— 地址里带着 token，不给猜的余地。
+      const webuiUrl = napcat && typeof napcat.webuiUrl === 'string' ? napcat.webuiUrl : ''
+      // 宿主报的 running 是权威判据（含外部启动的 NapCat）。拿不到状态时按未运行处理。
+      const napcatRunning = napcat !== null && napcat.running === true
+      const napcatOps = h(
+        'div',
+        { style: S.ops },
+        h(
+          'button',
+          {
+            type: 'button',
+            style: disabled(S.btn, webuiUrl === '' || napcatBusy !== ''),
+            disabled: webuiUrl === '' || napcatBusy !== '',
+            onClick: () => {
+              if (webuiUrl !== '') window.open(webuiUrl, '_blank', 'noopener')
+            },
+          },
+          '打开 WebUI',
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            style: disabled(S.btn, napcatRunning || napcatBusy !== ''),
+            disabled: napcatRunning || napcatBusy !== '',
+            onClick: () => postNapcat('launch', '已启动 NapCat'),
+          },
+          napcatRunning ? '已在运行' : napcatBusy === 'launch' ? '启动中…' : '启动 NapCat',
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            style: disabled(S.btn, napcatBusy !== ''),
+            disabled: napcatBusy !== '',
+            onClick: () =>
+              postNapcat('reveal', napcat && napcat.installDir ? `已打开文件夹：${napcat.installDir}` : '已打开文件夹'),
+          },
+          napcatBusy === 'reveal' ? '打开中…' : '打开文件夹',
+        ),
+        webuiUrl === '' ? h('span', { style: S.hint }, '没读到 webui.json') : null,
+      )
+
+      const header = h(
+        'button',
+        { type: 'button', onClick: () => setOpen(!open), 'aria-expanded': open, style: S.header },
+        h('span', { style: S.title }, 'QQ 桥接'),
+        h('span', { style: S.sub }, dirty ? '有未保存的改动' : '把固定的 DSH 会话接到 QQ'),
+        h('span', { style: S.chevron }, open ? '▴' : '▾'),
+      )
+      // 默认收起：和官方那几张卡片一样，点标题才展开，免得一屏全是表单
+      if (!open) return h('div', { style: S.wrap }, header)
+      return h(
+        'div',
+        { style: S.wrap },
+        header,
+        h('div', { style: S.grid }, rows),
+        napcatOps,
+        h(
+          'div',
+          { style: S.foot },
+          h(
+            'button',
+            {
+              type: 'button',
+              style: disabled({ ...S.btn, ...S.primary }, !dirty || busy || !snap.writable),
+              disabled: !dirty || busy || !snap.writable,
+              onClick: save,
+            },
+            busy ? '保存中…' : '保存',
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              style: disabled(S.btn, !dirty || busy),
+              disabled: !dirty || busy,
+              onClick: () => {
+                setDraft(null)
+                setError('')
+                setNote('')
+              },
+            },
+            '放弃修改',
+          ),
+          !snap.writable ? h('span', { style: S.note }, '（只读：这个连接不改宿主文档）') : null,
+          error ? h('span', { style: S.err }, error) : null,
+          !error && note ? h('span', { style: S.note }, note) : null,
+        ),
+      )
+    }
+
+    // ── 插件 ──────────────────────────────────────────────────────────────────
+
+    /** 需要的浏览器服务：slots（注册卡片）；settingsScope 在 apply 里等它出现。 */
+    const inject = ['slots']
+
+    // TODO(0.2.0): 平台把第三方插件的设置桥接上之后（web-all / DSH 修完 #677 的迁移），
+    // 可以砍掉多余候选 key 与卡片上那行“诊断”；`namespaces` / `detail()` 建议保留（排障用）。
+    // 详见 docs/dsh-0.2.0-migration.md 的 TODO 节。
+    /**
+     * 绑一个**可写的**设置域。导出（经 __test）以便离线测试。
+     *
+     * 两代 DSH 对“这个插件的设置”用的 key 不一样：
+     *   0.1.5-rc.3：settings 命名空间 —— `qq-bridge`（宿主半 register 出来的）；
+     *   0.2.0     ：profile **entry id** —— `include:qq-bridge`（由插件自己的 Config 投影而来）。
+     * 只绑前者的话，0.2.0 上永远拿到 `unavailable`，用户看到的就是“这个部署没有为 qq-bridge
+     * 提供可写的设置服务”（2026-10-01 桌面端真机）。所以**两个都绑，谁 ready 用谁**。
+     */
+    /** 0.2.0 的兜底数据源：宿主自己挂的本机接口（见宿主半的 handleSettingsRequest）。 */
+    const API_PATH = '/api/qq-bridge/settings'
+    /** NapCat 操作接口（宿主半不受 legacy 门控，两代宿主都挂）。 */
+    const NAPCAT_API = '/api/qq-bridge/napcat'
+    /** 稳定引用：useSyncExternalStore 的 getSnapshot 每次返回新对象会死循环。 */
+    const LOADING_SNAPSHOT = { status: 'loading' }
+    const UNAVAILABLE_SNAPSHOT = { status: 'unavailable' }
+
+    /**
+     * 走宿主本机接口的设置域（0.2.0 用）。
+     *
+     * 为什么需要它：0.2.0 的 `webUiSettings` 桥对第三方插件永远返回 `unavailable`
+     * （证据见 docs/dsh-0.2.0-migration.md）。范本：皮肤中心
+     * `@linxin666/dsh-client-ui-skin-center` 就是自己 `inject: ["webServer"]` 挂
+     * `/api/skin-center/...`，浏览器半直接 fetch 它，全程不碰宿主 settings 服务。
+     *
+     * 小 store：fetch 一次 → 缓存 snapshot → 通知订阅者；`set` 走 POST 再刷新。
+     * 快照形状与宿主 scope 对齐（`status` / `value` / `user` / `writable`），卡片不用改。
+     */
+    function createApiScope() {
+      const listeners = new Set()
+      let snapshot = { status: 'idle' }
+      let started = false
+      const publish = (next) => {
+        snapshot = next
+        for (const listener of [...listeners]) {
+          try {
+            listener()
+          } catch {
+            // 一个订阅者抛错不该影响别人
+          }
+        }
+      }
+      const accept = (body) => {
+        const overridden = Array.isArray(body?.overridden) ? body.overridden : []
+        publish({
+          status: 'ready',
+          value: body?.values && typeof body.values === 'object' ? body.values : {},
+          user: Object.fromEntries(overridden.map((key) => [key, true])),
+          writable: true,
+        })
+      }
+      const load = async () => {
+        if (typeof fetch !== 'function') {
+          publish({ status: 'unavailable', reason: 'no-fetch' })
+          return
+        }
+        publish({ status: 'loading' })
+        try {
+          const res = await fetch(API_PATH, { headers: { accept: 'application/json' } })
+          const body = await res.json().catch(() => ({}))
+          if (!res.ok || body?.ok !== true) throw new Error(body?.error || `HTTP ${res.status}`)
+          accept(body)
+        } catch (error) {
+          publish({ status: 'unavailable', reason: `api: ${error?.message ?? error}` })
+        }
+      }
+      return {
+        kind: 'api',
+        getSnapshot: () => snapshot,
+        start: () => {
+          if (started) return
+          started = true
+          load()
+        },
+        subscribe: (listener) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+        set: async (field, value) => {
+          const res = await fetch(API_PATH, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ set: { [field]: value } }),
+          })
+          const body = await res.json().catch(() => ({}))
+          if (!res.ok || body?.ok !== true) throw new Error(body?.error || `HTTP ${res.status}`)
+          accept(body)
+        },
+        /** 撤销一个字段的本机覆盖：接口本来就支持 `unset`，这里只是把它暴露给卡片。 */
+        unset: async (field) => {
+          if (typeof fetch !== 'function') throw new Error('qq-bridge: 这个环境没有 fetch')
+          const res = await fetch(API_PATH, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ unset: [field] }),
+          })
+          const body = await res.json().catch(() => ({}))
+          if (!res.ok || body?.ok !== true) throw new Error(body?.error || `HTTP ${res.status}`)
+          accept(body)
+        },
+      }
+    }
+
+    /**
+     * 绑一个**可写的**设置域。导出（经 __test）以便离线测试。
+     *
+     * 两代 DSH 对“这个插件的设置”用的 key 不一样：
+     *   0.1.5-rc.3：settings 命名空间 —— `qq-bridge`（宿主半 register 出来的）；
+     *   0.2.0     ：profile **entry id** —— `include:qq-bridge`（由插件自己的 Config 投影而来）。
+     * 只绑前者的话，0.2.0 上永远拿到 `unavailable`，用户看到的就是“这个部署没有为 qq-bridge
+     * 提供可写的设置服务”（2026-10-01 桌面端真机）。所以**两个都绑、谁 ready 用谁**；
+     * **全都不 ready** 时再退到宿主自己的本机接口（0.2.0 的兜底，见 createApiScope）。
+     */
+    function bindSettings(service) {
+      const unavailable = UNAVAILABLE_SNAPSHOT
+      const candidates = []
+      // 0.2.0 的表单 key 到底叫什么，源码里能看到的写法**全试一遍**（谁 ready 用谁）：
+      // settings 命名空间 / profile entry id / 包名，以及带 include: 前缀的两种。
+      for (const namespace of [NS, `include:${NS}`, 'dsh-qq-bridge', 'include:dsh-qq-bridge']) {
+        try {
+          const scope = service.bind({ namespace })
+          if (scope && typeof scope === 'object') candidates.push({ namespace, scope })
+        } catch (error) {
+          // 某个候选绑不上不影响另一个。
+          console?.debug?.(`qq-bridge: bind(${namespace}) 失败：${error?.message ?? error}`)
+        }
+      }
+      const snapshotOf = (candidate) => {
+        try {
+          return candidate.scope.getSnapshot?.() ?? unavailable
+        } catch {
+          return unavailable
+        }
+      }
+      const readyScope = () => candidates.find((candidate) => snapshotOf(candidate).status === 'ready')
+      const anyLoading = () => candidates.some((candidate) => snapshotOf(candidate).status === 'loading')
+      const api = createApiScope()
+      return {
+        // 供排障/测试看：这次到底绑到了哪些 key
+        namespaces: candidates.map((candidate) => candidate.namespace),
+        /** 这次数据从哪来（排障/测试用）：'scope' | 'api' | 'none'。 */
+        via: () => {
+          if (readyScope()) return 'scope'
+          return api.getSnapshot().status === 'ready' ? 'api' : 'none'
+        },
+        /**
+         * 每个候选的当前状态。直接显示在卡片上 —— 0.2.0 的 key 叫什么，
+         * 与其猜，不如让它自己报（2026-10-01 真机就是靠这个收敛的）。
+         */
+        detail: () => {
+          const scopes =
+            candidates.length === 0
+              ? '一个候选都没绑上（webUiSettings.bind 全部抛错）'
+              : candidates.map((candidate) => `${candidate.namespace}=${snapshotOf(candidate).status}`).join('、')
+          const apiSnap = api.getSnapshot()
+          return `${scopes}；本机接口=${apiSnap.status}${apiSnap.reason ? `（${apiSnap.reason}）` : ''}`
+        },
+        getSnapshot: () => {
+          const candidate = readyScope()
+          if (candidate) return snapshotOf(candidate)
+          // scope 全不可用 → 退到宿主本机接口；第一次问就把它跑起来。
+          if (!anyLoading()) api.start()
+          const apiSnap = api.getSnapshot()
+          if (apiSnap.status === 'ready') return apiSnap
+          if (apiSnap.status === 'loading' || apiSnap.status === 'idle') return LOADING_SNAPSHOT
+          return unavailable
+        },
+        subscribe: (listener) => {
+          const offs = []
+          for (const candidate of candidates) {
+            try {
+              const off = candidate.scope.subscribe?.(listener)
+              if (typeof off === 'function') offs.push(off)
+            } catch {
+              // 订阅失败不影响其它候选
+            }
+          }
+          offs.push(api.subscribe(listener))
+          if (!readyScope() && !anyLoading()) api.start()
+          return () => {
+            for (const off of offs) off()
+          }
+        },
+        set: (field, value) => {
+          const candidate = readyScope()
+          if (candidate && typeof candidate.scope.set === 'function') return candidate.scope.set(field, value)
+          if (api.getSnapshot().status === 'ready') return api.set(field, value)
+          throw new Error('qq-bridge: 没有可写的设置源')
+        },
+        /**
+         * 撤销一个字段的本机覆盖。
+         *
+         * 优先用设置域自己的 `unset`（DSH 的 SettingsScope 有这个能力）；
+         * 设置域没有它时走本机接口的 `unset`（宿主半的 handleSettingsRequest 本来就支持）。
+         */
+        unset: (field) => {
+          const candidate = readyScope()
+          if (candidate && typeof candidate.scope.unset === 'function') return candidate.scope.unset(field)
+          return api.unset(field)
+        },
+      }
+    }
+
+    function apply(ctx) {
+      // ⚠️ DSH 两代之间**两处都换了名字**（2026-10-01 用户指出第二处）：
+      //   ① 客户端**设置服务**：0.1.5-rc.3（web-all 0.3.x）叫 `settingsScope`，
+      //      0.2.0（web-all 0.4.x）叫 `webUiSettings`；
+      //   ② 插件配置页的**挂载 slot**：0.1.5-rc.3 是 `settings.plugin.item`（按 settings 命名空间派发），
+      //      0.2.0 是 `settings.plugins.tab`（插件自己是一个 tab）。
+      // 只 inject 旧服务名 = 0.2.0 上回调永远不跑（Cordis 的 inject 是响应式的，等不到就一直等），
+      // slot 再双注册也没用 —— 所以**服务门和 slot 都要各敲两遍**。
+      let registered = false
+      const setup = (service, scoped) => {
+        // 万一某个版本两个服务都在：只注册一次，别把卡片注册成两份。
+        if (registered) return
+        if (!service || typeof service.bind !== 'function') return
+        registered = true
+        // 两个 key 都绑，谁 ready 用谁（0.1.5 的命名空间 vs 0.2.0 的 entry id）。
+        const scope = bindSettings(service)
+        // sessionsOf 用“取的时候再解析”而不是现在取一次：
+        // sessions 服务可能比本插件晚出现，也可能这个部署根本没装 —— 那时卡片照常渲染，
+        // 只是目标会话那一栏只有一个兜底项，而不是整张卡片消失。
+        const card = () =>
+          h(Card, { scope, sessionsOf: () => ctx.get('sessions'), workspacesOf: () => ctx.get('workspaces') })
+
+        // slot 也各注册一遍：`slots.inject(slot, factory)` 只在那个 slot 存在时才跑 factory，
+        // 所以多注入一个是安全的；外面再包一层 try，兜住“slot 不存在就直接抛错”的实现。
+        const registerCard = (slot, options) => {
+          try {
+            scoped.slots.inject(slot, () => scoped.slots.register({ ...options, name: slot }, card))
+          } catch (error) {
+            // 这个版本的 DSH 没有这个 slot —— 忽略，另一个会生效。
+            console?.debug?.(`qq-bridge: slot ${slot} unavailable (${error?.message ?? error})`)
+          }
+        }
+        registerCard('settings.plugin.item', { key: NS })
+        registerCard('settings.plugins.tab', { id: NS, order: 100, label: () => 'QQ 桥接' })
+      }
+      // 每扇门里再互相兜一下（社区插件 `@linxin666/*` 的写法是 `ctx.get('webUiSettings') ?? ctx.settingsScope`）：
+      // 万一某版本两个服务都在、或名字以后又微调，两条路都拿得到；`registered` 闸门保证只注册一次。
+      // 两个服务的 **API 一致**：`bind({ namespace })` 之后同样是 `getSnapshot() / set() / subscribe()`
+      // （本卡片只用这三个），活参考见 `@linxin666/dsh-pet/lib/client.js`。
+      ctx.inject(['settingsScope'], (scoped) => setup(scoped.settingsScope ?? scoped.get?.('webUiSettings'), scoped))
+      ctx.inject(['webUiSettings'], (scoped) => setup(scoped.webUiSettings ?? scoped.get?.('settingsScope'), scoped))
+    }
+
+    exports.apply = apply
+    exports.inject = inject
+    // 导出 name：Cordis 用它做插件标识，Slots inspect 里的 registrant 会显示成它
+    // （不导的话那边显示的是产物里的 fallback 短名，排障时认不出是谁注册的卡片）。
+    exports.name = 'dsh-qq-bridge'
+    // 纯函数给离线测试用（test-smoke.mjs 会在假 ctx 里真跑这个 bundle）。
+    // Cordis 只认 apply / inject / name / Config，多余的导出它不管。
+    exports.__test = { sessionOptions, draftFrom, parse, fields: FIELDS, bindSettings }
+    return module.exports
+  },
+})
