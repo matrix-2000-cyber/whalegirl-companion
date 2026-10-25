@@ -1,5 +1,9 @@
 # 数据与安全
 
+0.4.0 安装版使用独立的程序和私密数据目录，端口为 3180/3191/3192。它不读取原有 DSH_HOME 或复制聊天记忆。安装前后均保留用户的设备权限选择。发布检查范围与限制见 [发布检查说明](docs/RELEASE-AUDIT.md)。
+
+安装版显式关闭 DSH 的 session-telemetry-otel、desktop-product-telemetry 和 product-analytics 可选上报。源码启动脚本也设置 DSH_TELEMETRY_DISABLED。它们不阻止你主动调用模型服务：启用画面理解后，摄像头抽帧仍会发给你选择的视觉模型；对话和朗读也会访问对应服务。不要把“源码不包含私密资料”理解为运行时完全离线。
+
 源码不应包含：API密钥、`.env.local`、`.mobile-gateway/`、`.dsh-meow/`、`.memsearch/`、DSH profile/session、聊天导出、日志、证书私钥、设备码、cookie、安卓/iOS签名材料。默认 `.gitignore` 排除这些路径；公开任何更新前仍应重新审查。
 
 3092网页仅回环访问；3091网关默认回环，手机场景才显式启用局域网。不要公开暴露DSH的管理端口。手机通过一次性邀请配对并校验固定证书指纹，主人与朋友身份由服务器决定。

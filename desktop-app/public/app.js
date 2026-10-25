@@ -65,7 +65,7 @@ function controls(){
   $('hangup').hidden=!calling;$('interrupt').hidden=!calling;$('mute').hidden=!calling
   $('mute').textContent=muted?'开麦':'闭麦'
   $('avatar').classList.toggle('speaking',speaking)
-  $('state').textContent=speaking?(voicePreparing?'正在准备声音…':'她正在说话'):busy?'本鱼在认真想…':audioPending?'本鱼在听这段录音…':calling?(muted?'麦克风已关闭':'在听你说话'):'在等你说话'
+  $('state').textContent=speaking?(voicePreparing?'正在准备声音…':'她正在说话'):busy?'鲸鲸在认真想…':audioPending?'鲸鲸在听这段录音…':calling?(muted?'麦克风已关闭':'在听你说话'):'在等你说话'
   updateHud()
 }
 async function api(path,data,{signal}={}){
@@ -74,7 +74,7 @@ async function api(path,data,{signal}={}){
   try{
     const res=await fetch(path,{method:data?'POST':'GET',headers:{'content-type':'application/json','x-whale-csrf':csrf},credentials:'same-origin',...(data?{body:JSON.stringify(data)}:{}),signal:controller.signal})
     const value=await res.json()
-    if(!res.ok)throw Object.assign(Error(value.error||'暂时连不上本鱼，请稍后再试'),{status:res.status})
+    if(!res.ok)throw Object.assign(Error(value.error||'暂时连不上鲸鲸，请稍后再试'),{status:res.status})
     return value
   }catch(e){if(signal?.aborted)throw new DOMException('已停止发声','AbortError');if(e.name==='AbortError')throw Error('等得有点久，先点刷新查看；消息不会自动重发');throw e}
   finally{clearTimeout(timer);signal?.removeEventListener('abort',abort)}
@@ -332,7 +332,7 @@ function startRecorder({monitor=false}={}){
       if(!calling||muted||lease!==epoch)return
       const result=await api('/api/transcribe',{audio,...(recording.trimStartMs?{trimStartMs:recording.trimStartMs}:{})})
       if(!calling||lease!==epoch)return
-      if(!result.text?.trim()){notice('刚才有点轻，再和本鱼说一遍吧');return}
+      if(!result.text?.trim()){notice('刚才有点轻，再和鲸鲸说一遍吧');return}
       $('heard').textContent='听到：'+result.text
       let image
       if(camera&&$('auto-frame').checked){image=frame()}
@@ -355,7 +355,7 @@ function meter(){
       rec.trimStartMs=Math.max(0,event.startedAt-rec.started-event.trimLeadMs)
       interrupt();character.express('attentive');initiative.activity();reactionGate.mark()
       player.dataset.bargeLatencyMs=String(event.detectedAt-event.startedAt)
-      notice('你说，本鱼在听。')
+      notice('你说，鲸鲸在听。')
     }else if((!speaking&&!busy)||!canBargeIn()||now-rec.started>27000){rec.discard=true;recorder.stop()}
     return
   }
@@ -445,10 +445,10 @@ function startHandTracking(){
   handTracker=createHandTracker({video:$('preview'),overlay:$('hand-overlay'),onGaze:target=>character.setGaze(target),onStatus:text=>{if($('hand-status').textContent!==text)$('hand-status').textContent=text},onWave:()=>{
     if(!camera||document.hidden)return
     character.greet()
-    if(busy||speaking||audioPending){$('hand-status').textContent='看到你挥手啦～等本鱼说完';return}
+    if(busy||speaking||audioPending){$('hand-status').textContent='看到你挥手啦～等鲸鲸说完';return}
     if(capture?.speechSeen||$('input').value.trim()||document.activeElement===$('input')||!reactionGate.claim())return
-    $('hand-status').textContent='收到你的挥手啦，本鱼向你点头问好～'
-    void speak('你好呀，本鱼也向你打招呼～',epoch,true)
+    $('hand-status').textContent='收到你的挥手啦，鲸鲸向你点头问好～'
+    void speak('你好呀，鲸鲸也向你打招呼～',epoch,true)
   }})
   handTracker.start()
 }
@@ -462,7 +462,7 @@ $('input').addEventListener('input',()=>initiative.activity())
 $('barge-in').addEventListener('change',()=>{bargeDetector.reset();resumeRecorder();try{localStorage.setItem('whale-barge-in',$('barge-in').checked?'on':'off')}catch{}})
 $('proactive-camera').addEventListener('change',()=>{try{localStorage.setItem('whale-proactive-camera',$('proactive-camera').checked?'on':'off')}catch{};if(!$('proactive-camera').checked&&initiativeSpeech)interrupt();initiative.activity()})
 $('call').addEventListener('click',()=>void call());$('hangup').addEventListener('click',hangup);$('interrupt').addEventListener('click',interrupt)
-$('test-voice').addEventListener('click',()=>{unlockPlayback();void speak('你好呀，本鱼在这里陪你。慢慢说，我在听呢。',epoch,true)})
+$('test-voice').addEventListener('click',()=>{unlockPlayback();void speak('你好呀，鲸鲸在这里陪你。慢慢说，我在听呢。',epoch,true)})
 $('test-laugh').addEventListener('click',event=>void audition('laugh_1',event.currentTarget))
 $('test-cry').addEventListener('click',event=>void audition('cry_1',event.currentTarget))
 $('mute').addEventListener('click',mute);$('camera').addEventListener('click',()=>void toggleCamera());$('refresh').addEventListener('click',()=>void refresh())

@@ -32,6 +32,7 @@ import { detectEmotion, emotionHint } from './emotion.js'
 import { createVoiceTranscriber } from './voice-in.js'
 import { CLIP_GROUPS, createVoiceLibrary, recordSegment } from './voice.js'
 import { compactChatTools, isLightChat, chatRequestConfig, restoreResumeReasoning } from './token-policy.js'
+import { managedOwnerFactory } from './managed-owner.js'
 import { registerMobile } from './mobile.js'
 import {
   findSticker,
@@ -1025,7 +1026,10 @@ export function apply(ctx, config) {
   async function ensureTargetAgent() {
     const s = readSettings()
     const id = s.targetSessionId
-    if (!id) throw new Error('未配置 targetSessionId')
+    if (!id) {
+      if (legacySettings) throw new Error('请先配置 targetSessionId')
+      return initializeManagedOwner()
+    }
 
     const live = ctx.agents.get(id)
     if (live) {
@@ -1056,6 +1060,12 @@ export function apply(ctx, config) {
     logger.info(`resumed target session ${id}`)
     return handle.agent
   }
+
+  const initializeManagedOwner = managedOwnerFactory({
+    ctx, enabled: process.env.WHALEGIRL_MANAGED === '1', cwd: process.env.WHALEGIRL_MANAGED_WORKSPACE,
+    preset: mountPreset, hold: (id, handle) => { handles.set(id, handle); mountUsagePrompt(handle.agent) },
+    save: id => writeSettingsFile({ ...readSettingsFile(), targetSessionId: id }),
+  })
 
   /** resume 时把 preset 挂到该 agent 的 setup 上（可选）。 */
   async function mountPreset(agentCtx) {
@@ -3249,7 +3259,7 @@ export function apply(ctx, config) {
     try {
       const routes = [
         [ '/api/qq-bridge/runtime', napcatRoute('GET', () => ({
-          ok: true, revision: 'video-native-stream-20261025', limits: { messageChars: MESSAGE_CHARS, turnMessages: TURN_MESSAGES },
+          ok: true, revision: 'installer-20261026', managedInstance: process.env.WHALEGIRL_MANAGED === '1' ? process.env.WHALEGIRL_INSTANCE_ID : undefined, limits: { messageChars: MESSAGE_CHARS, turnMessages: TURN_MESSAGES },
           cameraVision: cameraVision.status(),
           mobile: mobile.status(),
           tokenEconomy: { active: true, shortChatEffort: 'low (first request only)', memoryPolicy: 'unchanged', ...(tokenPolicies.get(ctx.agents.get(readSettings().targetSessionId)) ?? {}) },

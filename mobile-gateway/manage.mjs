@@ -4,13 +4,14 @@ import { resolve, join } from 'node:path'
 import { request } from 'node:https'
 import QRCode from 'qrcode'
 import { Store, digest } from './server.mjs'
-const root = resolve('.mobile-gateway')
+import {gatewayRoot,gatewayPort} from './runtime.mjs'
+const root = gatewayRoot()
 mkdirSync(root, { recursive: true })
 const tls = JSON.parse(readFileSync(join(root, 'tls.json'), 'utf8'))
 async function control(operation, payload) {
   try {
     return await new Promise((resolve, reject) => {
-      const req = request('https://127.0.0.1:3091/local/' + operation, { method: payload ? 'POST' : 'GET', ca: tls.cert, checkServerIdentity: () => undefined,
+      const req = request('https://127.0.0.1:' + gatewayPort() + '/local/' + operation, { method: payload ? 'POST' : 'GET', ca: tls.cert, checkServerIdentity: () => undefined,
         headers: { authorization: 'Bearer ' + digest(tls.key), 'content-type': 'application/json' }, timeout: 5000 }, res => {
         let text = ''; res.on('data', c => text += c); res.on('end', () => {
           try { const result = JSON.parse(text); res.statusCode === 200 ? resolve(result) : reject(Error('Local administration rejected')) } catch (e) { reject(e) }

@@ -10,9 +10,10 @@ import { formatReply } from './public/speech-text.mjs'
 import { createAliyunVoice } from './aliyun-voice.mjs'
 import {createWarmRecognizer} from './warm-asr.mjs'
 import {liveChat} from './live-chat.mjs'
+import {gatewayRoot,servicePort} from '../mobile-gateway/runtime.mjs'
 
 const publicRoot = join(dirname(fileURLToPath(import.meta.url)), 'public')
-const runtimeRoot=resolve(publicRoot,'../../.desktop-runtime')
+const runtimeRoot=resolve(process.env.WHALEGIRL_RUNTIME_ROOT || resolve(publicRoot,'../../.desktop-runtime'))
 const vendorAssets={
   '/vendor/vision/vision_bundle.js':['vision/node_modules/@mediapipe/tasks-vision/vision_bundle.js','text/javascript'],
   '/vendor/models/hand_landmarker.task':['models/hand_landmarker.task','application/octet-stream'],
@@ -77,7 +78,7 @@ export function desktopApp({ gateway, transcribe, synthesize, streamSpeech,audio
       if(req.headers.origin && req.headers.origin!==origin) return json(res,403,{error:'请从鲸鱼娘页面操作'})
       const navigation=path==='/' && req.method==='GET' && req.headers['sec-fetch-mode']==='navigate' && req.headers['sec-fetch-dest']==='document'
       if(req.headers['sec-fetch-site']==='cross-site' && !navigation) return json(res,403,{error:'请直接打开鲸鱼娘'})
-      if(path==='/health' && req.method==='GET') return json(res,200,{ok:true})
+      if(path==='/health' && req.method==='GET') return json(res,200,{ok:true,...(process.env.WHALEGIRL_INSTANCE_ID?{instance:process.env.WHALEGIRL_INSTANCE_ID}:{})})
       const cookie=String(req.headers.cookie||'').match(/(?:^|;\s*)whale_desktop=([a-f0-9]{48})(?:;|$)/)?.[1]
       let session=sessions.get(cookie)
       if(session && session.expires<now()){sessions.delete(cookie);session=null}
@@ -164,7 +165,7 @@ export function desktopApp({ gateway, transcribe, synthesize, streamSpeech,audio
   }
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
-  const root=resolve('.mobile-gateway')
+  const root=gatewayRoot(), port=servicePort('WHALEGIRL_DESKTOP_PORT',3092)
   const gateway=await desktopClient(root)
   const recognizer=createWarmRecognizer({root:join(root,'pc-audio')})
   const transcribe=createTranscriber({root:join(root,'pc-audio'),decode:recognizer.decode})
@@ -172,8 +173,8 @@ if(process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).
   const synthesize=createSpeaker({root:join(root,'pc-speech')})
   const streamSpeech=createSpeechStreamer({root:join(root,'pc-speech')})
   const paid=createAliyunVoice({root})
-  const server=createServer(desktopApp({gateway,transcribe,audioStatus:recognizer.status,synthesize:(text,style)=>style==='aliyun'?paid.synthesize(text):synthesize(text,style),streamSpeech:(text,style,signal)=>style==='aliyun'?paid.stream(text,signal):streamSpeech(text,style,signal),paidVoiceStatus:paid.status}))
+  const server=createServer(desktopApp({gateway,port,transcribe,audioStatus:recognizer.status,synthesize:(text,style)=>style==='aliyun'?paid.synthesize(text):synthesize(text,style),streamSpeech:(text,style,signal)=>style==='aliyun'?paid.stream(text,signal):streamSpeech(text,style,signal),paidVoiceStatus:paid.status}))
   server.on('close',recognizer.close)
   server.requestTimeout=120000;server.headersTimeout=15000
-  server.listen(3092,'127.0.0.1',()=>console.log('WhaleGirl desktop ready: http://127.0.0.1:3092'))
+  server.listen(port,'127.0.0.1',()=>console.log('WhaleGirl desktop ready on loopback port '+port))
 }

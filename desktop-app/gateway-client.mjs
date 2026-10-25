@@ -2,12 +2,13 @@ import { request } from 'node:https'
 import { readFileSync, existsSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { digest } from '../mobile-gateway/server.mjs'
+import {gatewayPort} from '../mobile-gateway/runtime.mjs'
 
 export async function desktopClient(root) {
   const tls = JSON.parse(readFileSync(join(root, 'tls.json'), 'utf8'))
   async function call(path, token, data) {
     return new Promise((resolve, reject) => {
-      const req = request('https://127.0.0.1:3091' + path, { method: data ? 'POST' : 'GET', ca: tls.cert, checkServerIdentity: () => undefined,
+      const req = request('https://127.0.0.1:' + gatewayPort() + path, { method: data ? 'POST' : 'GET', ca: tls.cert, checkServerIdentity: () => undefined,
         headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' }, timeout: 15000 }, res => {
         let text = ''; res.on('data', c => text += c); res.on('end', () => {
           try { const result = JSON.parse(text); if (res.statusCode >= 300) reject(Object.assign(Error(result.error || '电脑服务暂时不可用'), { status: res.statusCode })); else resolve(result) } catch(e) { reject(e) }

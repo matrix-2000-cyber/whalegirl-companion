@@ -9,7 +9,7 @@ test('facial cues ask gently instead of declaring moods, and respect expression 
  }
  assert.match(faceResponse('brow',{userText:'我在测试表情，没有生气'}).text,/皱眉的动作/)
  assert.match(faceResponse('smile',{userText:'其实我很难过'}).text,/陪你慢慢聊/)
- assert.equal(replyExpression('别哭，本鱼陪着你。'),'concern')
+ assert.equal(replyExpression('别哭，鲸鲸陪着你。'),'concern')
  assert.equal(faceResponse('mouthOpen'),null)
 })
 test('gestures and face replies share a cooldown; expression transitions fade rather than snap',()=>{

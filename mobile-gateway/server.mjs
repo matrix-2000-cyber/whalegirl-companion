@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { withVisionFallback } from './vision-fallback.mjs'
 import {initiativePrompts,initiativePrompt,INITIATIVE_COOLDOWN} from './initiative.mjs'
 import {createVisionCache} from './vision-cache.mjs'
+import {bridgeKeyPath,dshOrigin,gatewayPort,gatewayRoot} from './runtime.mjs'
 
 export const digest = s => createHash('sha256').update(s).digest('hex')
 export class Store {
@@ -96,6 +97,11 @@ export function app({ store, backend, now = Date.now, adminKey = '',analyze=loca
         if(initiative&&Object.values(store.data.jobs).some(j=>j.principalId===pid&&j.initiative&&now()-j.created<INITIATIVE_COOLDOWN))return json(res,429,{error:'刚刚主动聊过，先等你回应'})
         const text = initiative?initiativePrompt(initiative,!!input.image||!!(input.useVision&&vision.read(device.id))):String(input.text || '').trim()
         if (!text || [...text].length > 2000) return json(res, 400, { error: '请输入1到2000字' })
+        // Live-video turns need a longer, self-driven answer. The bridge's own
+        // system notice is loaded at plugin start, so enforce it here as well.
+        const bridgeText = input.realtime === true && !initiative
+          ? '[视频通话模式] 主动带话题，一次说 150–250 字（约 1–2 分钟）：先回应，再自然展开一个小观察、小故事或问题；不要只一两句，也不要长篇独白到停不下来。\n' + text
+          : text
         if (input.image && (typeof input.image !== 'string' || input.image.length > 440_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(input.image))) return json(res, 400, { error: '画面格式或大小不支持' })
         const job = { id: input.id, principalId: pid, status: 'pending', created: now(),...(initiative?{initiative}:{}) }
         store.data.jobs[input.id] = job
@@ -109,7 +115,7 @@ export function app({ store, backend, now = Date.now, adminKey = '',analyze=loca
         json(res, 202, job)
         const observation=input.useVision===true&&!input.image?vision.read(device.id):null
         const faceCue=(input.image||observation)&&['smile','brow','raisedBrows','downturned','mouthOpen','eyesClosed','nod','shake','neutral'].includes(input.faceCue)?input.faceCue:undefined
-        void Promise.resolve().then(() => backend({ id:input.id,principal: device.principal, text, image: input.image,...(initiative?{initiative}:{}),...(observation?{visualContext:observation.text,visualAgeMs:observation.ageMs}:{}),...(faceCue?{faceCue}:{}),...(input.realtime===true?{realtime:true,onProgress:value=>{if(job.status==='pending'&&typeof value==='string')job.partial=value.slice(0,12000)}}:{}) })).then(result => {
+        void Promise.resolve().then(() => backend({ id:input.id,principal: device.principal, text:bridgeText, image: input.image,...(initiative?{initiative}:{}),...(observation?{visualContext:observation.text,visualAgeMs:observation.ageMs}:{}),...(faceCue?{faceCue}:{}),...(input.realtime===true?{realtime:true,onProgress:value=>{if(job.status==='pending'&&typeof value==='string')job.partial=value.slice(0,12000)}}:{}) })).then(result => {
           if (!result?.text) throw Error('她暂时没有回复')
           Object.assign(job, { status: 'done', text: result.text, finished: now(),...(result.timings?{timings:result.timings}:{}),...(result.warning?{warning:result.warning,vision:result.vision}:{}) })
           history.push({ id: input.id + '-reply', role: 'assistant', text: result.text, at: now() })
@@ -124,35 +130,35 @@ export function app({ store, backend, now = Date.now, adminKey = '',analyze=loca
 }
 
 export async function localBackend(input) {
-  const keyPath = join(homedir(), '.dsh/whale-mobile/internal-key.json')
+  const keyPath = bridgeKeyPath()
   if (!existsSync(keyPath)) throw Error('电脑端手机桥接尚未启用')
   const key = JSON.parse(readFileSync(keyPath, 'utf8')).key
   let polling=false,stopped=false
   const timer=input.realtime&&input.onProgress?setInterval(async()=>{
     if(polling||stopped)return;polling=true
     try{
-      const res=await fetch('http://127.0.0.1:3080/api/whale-mobile/progress',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+key},body:JSON.stringify({id:input.id}),signal:AbortSignal.timeout(3000)})
+      const res=await fetch(dshOrigin()+'/api/whale-mobile/progress',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+key},body:JSON.stringify({id:input.id}),signal:AbortSignal.timeout(3000)})
       const value=await res.json();if(!stopped&&value.ok&&value.text)input.onProgress(value.text)
     }catch{/* A missing progress packet must never replay the conversation. */}finally{polling=false}
   },120):null
   try{return await withVisionFallback(input,async payload=>{
-    const response = await fetch('http://127.0.0.1:3080/api/whale-mobile/chat', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(payload), signal: AbortSignal.timeout(190000) })
+    const response = await fetch(dshOrigin()+'/api/whale-mobile/chat', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(payload), signal: AbortSignal.timeout(190000) })
     const result=await response.json()
     if(!response.ok&&!result.error)throw Error('电脑端服务不可用')
     return result
   })}finally{stopped=true;clearInterval(timer)}
 }
 export async function localVision(image){
-  const key=JSON.parse(readFileSync(join(homedir(),'.dsh/whale-mobile/internal-key.json'),'utf8')).key
-  const response=await fetch('http://127.0.0.1:3080/api/whale-mobile/vision',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+key},body:JSON.stringify({image,question:'描述可见人物、动作、手持物、衣着和环境。只写确定看见的事实，模糊处说明不确定，不推断真实心情。'}),signal:AbortSignal.timeout(18000)})
+  const key=JSON.parse(readFileSync(bridgeKeyPath(),'utf8')).key
+  const response=await fetch(dshOrigin()+'/api/whale-mobile/vision',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+key},body:JSON.stringify({image,question:'描述可见人物、动作、手持物、衣着和环境。只写确定看见的事实，模糊处说明不确定，不推断真实心情。'}),signal:AbortSignal.timeout(18000)})
   const value=await response.json();if(!response.ok||!value.ok)throw Error('画面分析暂不可用');return value
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const root = resolve('.mobile-gateway'), tls = JSON.parse(readFileSync(join(root, 'tls.json'), 'utf8'))
+  const root = gatewayRoot(), tls = JSON.parse(readFileSync(join(root, 'tls.json'), 'utf8'))
   const store = new Store(join(root, 'state.json'))
   const server = createServer({ key: tls.key, cert: tls.cert }, app({ store, backend: localBackend, adminKey: digest(tls.key) }))
   const lan = process.argv.includes('--lan'), host = lan ? '0.0.0.0' : '127.0.0.1'
   server.requestTimeout = 200_000; server.headersTimeout = 15000
-  server.listen(3091, host, () => console.log(`WhaleGirl mobile gateway listening on ${host}:3091 (HTTPS, paired devices only)`))
+  server.listen(gatewayPort(), host, () => console.log(`WhaleGirl mobile gateway listening on ${host}:${gatewayPort()} (HTTPS, paired devices only)`))
 }

@@ -15,3 +15,17 @@ jobs:
           node-version: '24'
       - run: npm ci --prefix mobile-gateway --ignore-scripts
       - run: npm test
+      - run: npm install --prefix "${{ runner.temp }}/whale-test-host" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.2
+      - run: npm run test:bridge
+        env:
+          DSH_PACKAGE_JSON: ${{ runner.temp }}/whale-test-host/node_modules/@deepseek-ai/dsh/package.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python installer/test/unpack_model_test.py
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          git archive --format=zip -o "${{ runner.temp }}/whale-source.zip" HEAD
+          Expand-Archive -LiteralPath "${{ runner.temp }}/whale-source.zip" -DestinationPath "${{ runner.temp }}/whale-clean-source"
+          pwsh -File installer/build.ps1 -Source "${{ runner.temp }}/whale-clean-source" -Output out/setup

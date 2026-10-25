@@ -1,5 +1,7 @@
 # 安装与配置
 
+Windows 新用户优先使用[安装包](WINDOWS-SETUP.md)。以下是源码手动部署流程，端口与安装版不同。
+
 ## 1. 环境
 
 主要支持 Windows 10/11。安装 Node.js 24、PowerShell 7.2以上、Python 3.11/3.12及 FFmpeg，确保 `node`、`pwsh`、`python`、`ffmpeg` 可以执行。Node 24用于内置WebSocket和测试接口。

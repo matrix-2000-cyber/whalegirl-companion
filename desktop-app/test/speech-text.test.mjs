@@ -2,9 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {formatReply,speechText,createPlaybackGate} from '../public/speech-text.mjs'
 test('duplicated assembled replies speak each sentence once, including changed closing punctuation',()=>{
-  const input='本鱼今天翻到个好玩的海怪冷知识～ 爸爸晚饭吃了吗，别只忙不吃饭。\n本鱼今天翻到个好玩的海怪冷知识～\n\n爸爸晚饭吃了吗，别只忙不吃饭～'
-  assert.equal(formatReply(input),'本鱼今天翻到个好玩的海怪冷知识～\n爸爸晚饭吃了吗，别只忙不吃饭。')
-  assert.equal(speechText(input),'本鱼今天翻到个好玩的海怪冷知识。\n爸爸晚饭吃了吗，别只忙不吃饭。')
+  const input='鲸鲸今天翻到个好玩的海怪冷知识～ 爸爸晚饭吃了吗，别只忙不吃饭。\n鲸鲸今天翻到个好玩的海怪冷知识～\n\n爸爸晚饭吃了吗，别只忙不吃饭～'
+  assert.equal(formatReply(input),'鲸鲸今天翻到个好玩的海怪冷知识～\n爸爸晚饭吃了吗，别只忙不吃饭。')
+  assert.equal(speechText(input),'鲸鲸今天翻到个好玩的海怪冷知识。\n爸爸晚饭吃了吗，别只忙不吃饭。')
 })
 test('formatting preserves distinct sentences, decimals, emphasis and short breath groups',()=>{
   assert.equal(formatReply('真的真的好开心！温度是1.5度。温度是15度。'),'真的真的好开心！\n温度是1.5度。\n温度是15度。')
