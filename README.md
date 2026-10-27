@@ -4,11 +4,11 @@
 
 ![书房场景素材](desktop-app/public/study-room.png)
 
-> 当前源码：0.5.0。新版改进了语音延迟、音频驱动口型、短句陪聊和画面时效，详见 [更新记录](CHANGELOG.md)。现有公开安装包仍为 0.4.0，体验本次更新请使用源码启动。它仍是分阶段语音与视觉交互原型，尚未达到真人视频电话的延迟与可靠性。
+> 当前版本：0.5.0。新版改进了语音延迟、音频驱动口型、短句陪聊和画面时效，详见 [更新记录](CHANGELOG.md)。提供源码和 Windows 安装预览包；它仍是分阶段语音与视觉交互原型，尚未达到真人视频电话的延迟与可靠性。
 
 ## Windows 安装包（推荐新用户）
 
-从 [GitHub Releases](https://github.com/matrix-2000-cyber/whalegirl-companion/releases/tag/v0.4.0) 下载 `WhaleGirl-Setup-0.4.0-win-x64.exe`，运行安装向导。它会自动下载独立运行环境、手/脸识别模型、语音识别模型，安装 DSH 和记忆插件，并创建桌面入口。首次联网下载约 1.7 GB 以上，请预留 5 GB 空间；速度取决于 npm、PyPI、GitHub 和 Google 模型源的可达性。
+从 [GitHub Releases](https://github.com/matrix-2000-cyber/whalegirl-companion/releases/tag/v0.5.0) 下载 `WhaleGirl-Setup-0.5.0-win-x64.exe`，运行安装向导。它会自动下载独立运行环境、手/脸识别模型、语音识别模型，安装 DSH 和记忆插件，并创建桌面入口。首次联网下载约 1.7 GB 以上，请预留 5 GB 空间；速度取决于 npm、PyPI、GitHub 和 Google 模型源的可达性。
 
 首次启动仍需在“打开模型设置”中登录自己的模型服务、选择支持对话/工具调用/视觉的模型，再开始聊天。安装包不提供账号或额度。当前 EXE 尚无代码签名，属于预览版；下载页附 SHA256 校验值与[隐私检查说明](docs/RELEASE-AUDIT.md)。
 

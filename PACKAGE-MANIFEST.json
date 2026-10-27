@@ -13,7 +13,7 @@
   },
   {
     "path": "CHANGELOG.md",
-    "sha256": "b03515a3cb7e29a599471ed5dca17a09a7d969eb8346e981b5bf5e3ba26d6826"
+    "sha256": "982bf1152136b58b7dec4379bc18b9aaa942b5015c2912c6f7e1f61351776b4d"
   },
   {
     "path": "CONTRIBUTING.md",
@@ -25,7 +25,7 @@
   },
   {
     "path": "README.md",
-    "sha256": "e44a6aadcef6dbaf02614cfdec428e47fc47590886f84d749048430042f587f9"
+    "sha256": "520c2ad7adc2128e9e961a562586ed87c9d45b33b6ce437635200585f7b3de3d"
   },
   {
     "path": "SECURITY.md",
