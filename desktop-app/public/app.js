@@ -11,7 +11,9 @@ import {faceResponse,replyExpression,createReactionGate} from './interaction-rul
 import {createBargeInDetector,createSignalProbe} from './barge-in.mjs'
 import {createSentenceFeed} from './sentence-feed.mjs'
 import {createReplyPlayer} from './reply-player.mjs'
-import {createVideoObserver,requiresCurrentFrame} from './video-observer.mjs'
+import {createFingerGaze} from './finger-gaze.mjs'
+import {createVideoObserver,prepareTurnVision} from './video-observer.mjs'
+import {recoverPending,waitForPending,forgetPending} from './pending-turn.mjs'
 const $=id=>document.getElementById(id)
 let csrf='',connected=false,busy=false,calling=false,muted=false,speaking=false,epoch=0
 let stream=null,context=null,analyser=null,recorder=null,voiceTimer=null,camera=null,cameraEpoch=0
@@ -31,10 +33,13 @@ try{lastInitiative=Number(sessionStorage.getItem('whale-initiative-at'))||-Infin
 const initiative=createInitiative({lastAt:lastInitiative,save:at=>{try{sessionStorage.setItem('whale-initiative-at',String(at))}catch{}}})
 const player=document.getElementById('voice-player')
 const character=createAvatar({canvas:$('character'),player})
+const fingerGaze=createFingerGaze()
 const playbackGate=createPlaybackGate()
 const videoObserver=createVideoObserver({capture:()=>{if(!camera||document.hidden||!$('auto-frame').checked)throw Error('未分享画面');return frame()},observe:(image,signal)=>api('/api/vision-observe',{image},{signal}),clear:()=>csrf?api('/api/vision-clear',{}):Promise.resolve(),onState:text=>{if(camera&&$('auto-frame').checked)visionStatus(text)}})
 const uiStarted=performance.now()
 function updateHud(){
+  character.setInteraction?.({busy:busy||audioPending||voicePreparing||speaking||Boolean(capture?.speechSeen)})
+  character.setGazeEnabled?.(fingerGaze.active())
   if(!$('hud-link'))return
   document.body.dataset.camera=camera?'on':'off'
   document.body.dataset.mode=voicePreparing?'preparing':speaking&&!player.paused?'speaking':busy?'thinking':calling?'listening':'idle'
@@ -42,7 +47,7 @@ function updateHud(){
   $('hud-voice').textContent=voicePreparing?'声音合成中':speaking&&!player.paused?'正在说话':audioPending?'正在听你说话':calling?(muted?'已闭麦':'聆听中'):'待机'
   $('hud-camera').textContent=camera?($('auto-frame').checked?'画面共享':'本地互动'):cameraPending?'等待授权':'未开启'
   const hand=$('hand-status').textContent
-  $('hud-hand').textContent=!camera?'未开启':!$('hand-follow').checked?'已关闭':/失败|不支持|不可用|超时/.test(hand)?'暂不可用':hand.includes('正在准备')?'初始化中':hand.includes('看到你的手')?'已捕获':'等待手部'
+  $('hud-hand').textContent=!camera?'未开启':!$('hand-follow').checked?'已关闭':/失败|不支持|不可用|超时/.test(hand)?'暂不可用':hand.includes('正在准备')?'初始化中':/看到你的手|已识别手势/.test(hand)?'已捕获':'等待手部'
 }
 function updateClocks(){
   if(!$('wall-clock'))return
@@ -154,13 +159,13 @@ async function speak(text,lease,preview=false,presentation={}){
   const generation=++speechEpoch
   player.dataset.speechStart=String(performance.now());player.dataset.firstPlayMs='';player.dataset.generatedMs=''
   speaking=true;voicePreparing=true;controls()
-  character.express(presentation.expression||replyExpression(String(text)))
+  character.express(presentation.expression||replyExpression(String(text)),{source:presentation.expression?'face':'reply'})
   if(recorder?.state==='recording'&&!capture?.monitor){if(capture)capture.discard=true;recorder.stop()}
   bargeDetector.reset();resumeRecorder()
   const controller=new AbortController();currentSpeechAbort=controller
   const parentAbort=()=>{controller.abort();if(currentSpeechAbort===controller){player.pause();currentSpeechDone?.()}};presentation.responseSignal?.addEventListener('abort',parentAbort,{once:true})
   if(script.clip&&!paid){
-    character.express?.(script.clip.startsWith('cry')?'cry':script.clip.startsWith('sigh')?'sigh':'smile')
+    character.express?.(script.clip.startsWith('cry')?'cry':script.clip.startsWith('sigh')?'sigh':'smile',{source:presentation.expression?'face':'voice'})
     // Recorded vocal effect first, followed by any meaningful spoken words.
     const played=await playEmotionClip(script.clip,$('voice-style').value,controller)
     if(generation!==speechEpoch){presentation.responseSignal?.removeEventListener('abort',parentAbort);return}
@@ -208,7 +213,7 @@ async function speak(text,lease,preview=false,presentation={}){
   }
 }
 let currentSpeechDone=null
-function interrupt({preserveReply=false}={}){if(!preserveReply){responseController?.abort();responseController=null}speechEpoch++;currentSpeechAbort?.abort();currentSpeechAbort=null;player.pause();currentSpeechDone?.();currentSpeechDone=null;player.removeAttribute('src');player.load();if(speechUrl)URL.revokeObjectURL(speechUrl);speechUrl=null;player.hidden=true;$('resume-audio').hidden=true;speaking=false;voicePreparing=false;controls()}
+function interrupt({preserveReply=false}={}){if(!preserveReply){responseController?.abort();responseController=null;character.resetAction?.()}speechEpoch++;currentSpeechAbort?.abort();currentSpeechAbort=null;player.pause();currentSpeechDone?.();currentSpeechDone=null;player.removeAttribute('src');player.load();if(speechUrl)URL.revokeObjectURL(speechUrl);speechUrl=null;player.hidden=true;$('resume-audio').hidden=true;speaking=false;voicePreparing=false;controls()}
 // Replaying a finished clip must also keep the microphone from hearing her.
 player.addEventListener('playing',()=>{
   if(!speechUrl||player.hidden)return
@@ -234,6 +239,7 @@ async function audition(name,button){
   }
   unlockPlayback()
   interrupt()
+  character.express?.(name.startsWith('cry')?'cry':name.startsWith('sigh')?'sigh':'smile',{source:'voice'})
   const generation=speechEpoch,controller=new AbortController()
   currentSpeechAbort=controller;speaking=true;voicePreparing=false;controls()
   if(recorder?.state==='recording'){if(capture)capture.discard=true;recorder.stop()}
@@ -254,9 +260,17 @@ async function send(text,image,{initiative:initiativeKind=null,cameraLease=null}
   if(busy||!connected||!text.trim())return
   busy=true;notice('');$('heard').textContent='';controls()
   if(!initiativeKind)initiative.userTurn()
+  if(!initiativeKind){
+    const gazeCommand=fingerGaze.command(text)
+    if(gazeCommand){
+      character.setGazeEnabled?.(fingerGaze.active())
+      $('hand-status').textContent=gazeCommand==='start'?'已收到指尖注视指令 · 30秒后恢复正视，说“看回我”可提前结束':'已结束指尖注视 · 恢复正视'
+      if(gazeCommand==='start'&&!camera)notice('请先打开互动摄像头，再把食指放进画面。')
+    }
+  }
   if(!initiativeKind){lastUserText=text.trim();lastUserAt=Date.now();reactionGate.mark()}
-  const useVision=!!image&&videoObserver.fresh()&&!requiresCurrentFrame(text)
-  if(image)visionStatus(useVision?'使用刚刚更新的画面 · 同时准备回答':'正在看清本轮画面…')
+  let useVision=false
+  if(image)visionStatus('正在准备本轮最新画面…')
   if(recorder?.state==='recording'){capture.discard=true;recorder.stop()}
   const lease=epoch,id=crypto.randomUUID()
   const controller=new AbortController();responseController=controller
@@ -270,41 +284,43 @@ async function send(text,image,{initiative:initiativeKind=null,cameraLease=null}
     return fetch('/api/speech-stream',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json','x-whale-csrf':csrf},body:JSON.stringify({text:spoken,style:$('voice-style').value}),signal:controller.signal})
   },play:async(segment,responsePromise)=>{initiativeSpeech=!!initiativeKind;try{await speak(segment,lease,!!initiativeKind,{responsePromise,responseSignal:controller.signal})}finally{initiativeSpeech=false}}})
   try{
-    if(sessionStorage.getItem('whale-pending')){
-      const previous=sessionStorage.getItem('whale-pending'),deadline=Date.now()+190000
-      while(true){controller.signal.throwIfAborted();const job=await api('/api/jobs/'+previous,undefined,{signal:controller.signal});if(job.status!=='pending'){sessionStorage.removeItem('whale-pending');break}if(Date.now()>deadline)throw Error('上一轮还未结束，请查看记录');await new Promise(r=>setTimeout(r,120))}
-    }
-    sessionStorage.setItem('whale-pending',id)
+    await waitForPending({storage:sessionStorage,getJob:previous=>api('/api/jobs/'+previous,undefined,{signal:controller.signal}),signal:controller.signal})
+    controller.signal.throwIfAborted()
+    // Recapture after any recovery wait. A closed camera revokes the old frame too.
+    const turnVision=prepareTurnVision({image,sharing:camera&&$('auto-frame').checked,capture:frame,initiative:!!initiativeKind,fresh:videoObserver.fresh(),text})
+    image=turnVision.image;useVision=turnVision.useVision
+    if(image)visionStatus(useVision?'主动闲聊参考近期画面':'正在分析刚抓取的本轮照片…')
     const faceCue=image&&faceObservation?.code&&performance.now()-faceObservation.at<1500?faceObservation.code:undefined
-    const feed=createSentenceFeed();const audioAllowed=canPlay()&&playbackGate.claim(id)
+    const feed=createSentenceFeed({earlyFirstClause:true});const audioAllowed=canPlay()&&playbackGate.claim(id)
     const bubble=document.createElement('div'),line=document.createElement('div');line.className='line';bubble.className='bubble';line.append(bubble);$('messages').append(line)
     const job=await readLiveReply({id,text:text.trim(),...(image&&!useVision?{image}:{}),...(useVision?{useVision:true}:{}),...(faceCue?{faceCue}:{}),...(initiativeKind?{initiative:initiativeKind}:{})},controller.signal,event=>{
+      if(event.type==='accepted'){sessionStorage.setItem('whale-pending',id);return}
       bubble.textContent=formatReply(event.text)
       if(audioAllowed)for(const segment of feed.update(event.text,event.type==='done'))queue.push(segment)
     })
     if(image){
       if(job.vision?.status==='unavailable')visionStatus('这轮画面没看清 · 连续视觉仍在重试')
-      else visionStatus(useVision?'这轮已结合最近画面 · 视觉继续更新':'本轮画面已识别 · 视觉继续更新')
+      else visionStatus(useVision?'主动闲聊已参考近期画面':'本轮照片已分析 · 新动作请再问一句')
     }
     sessionStorage.removeItem('whale-pending')
     await Promise.all([history().catch(e=>notice(e.message)),queue.finish()])
     if(job.warning)notice('画面暂没看清，仍会继续分析和陪你说话')
-  }catch(e){queue.cancel();if(!controller.signal.aborted)notice(e.message);controller.abort()}finally{if(responseController===controller)responseController=null;busy=false;initiative.activity();controls();resumeRecorder()}
+  }catch(e){queue.cancel();if(e.status===404)forgetPending(sessionStorage,id);if(!controller.signal.aborted)notice(e.message);controller.abort()}finally{if(responseController===controller)responseController=null;busy=false;initiative.activity();controls();resumeRecorder()}
 }
 async function readLiveReply(input,signal,onText){
   const response=await fetch('/api/live-chat',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json','x-whale-csrf':csrf},body:JSON.stringify(input),signal})
-  if(!response.ok){const value=await response.json();throw Error(value.error||'对话连接暂不可用')}
+  if(!response.ok){const value=await response.json();throw Object.assign(Error(value.error||'对话连接暂不可用'),{status:response.status})}
   const reader=response.body.getReader(),decoder=new TextDecoder();let pending='',result=null
   try{while(true){const {value,done}=await reader.read();if(done)break;pending+=decoder.decode(value,{stream:true});if(pending.length>64000)throw Error('回答过长');let end
-    while((end=pending.indexOf('\n'))>=0){const raw=pending.slice(0,end);pending=pending.slice(end+1);if(!raw.trim())continue;const event=JSON.parse(raw);if(event.type==='error')throw Error(event.error);if(event.type==='text'||event.type==='done')onText(event);if(event.type==='done')result=event}
+    while((end=pending.indexOf('\n'))>=0){const raw=pending.slice(0,end);pending=pending.slice(end+1);if(!raw.trim())continue;const event=JSON.parse(raw);if(event.type==='error')throw Object.assign(Error(event.error),{status:event.status});if(['accepted','text','done'].includes(event.type))onText(event);if(event.type==='done')result=event}
   }if(!result)throw Error('回答连接中断，可查看通信记录');return result}finally{reader.releaseLock()}
 }
 async function refresh(){
   try{
-    const id=sessionStorage.getItem('whale-pending')
-    if(id){const job=await api('/api/jobs/'+id);if(job.status==='done'){sessionStorage.removeItem('whale-pending');notice('已经找回上一条回复')}else if(job.status!=='pending'){sessionStorage.removeItem('whale-pending');notice(job.error||'上一条未完成')}else notice('她还在回复，稍后再刷新')}
+    const job=await recoverPending({storage:sessionStorage,getJob:id=>api('/api/jobs/'+id)})
+    if(job){if(job.status==='done')notice('已经找回上一条回复');else if(job.status==='missing')notice('已清理失效的等待记录，可以继续说话');else if(job.status!=='pending')notice(job.error||'上一条未完成');else notice('她还在回复，稍后再刷新')}
     await history()
-  }catch(e){if(e.status===404)sessionStorage.removeItem('whale-pending');notice(e.message)}
+  }catch(e){notice(e.message)}
 }
 function canBargeIn(){return calling&&!muted&&echoCancellation&&$('barge-in').checked}
 function resumeRecorder(){
@@ -353,7 +369,7 @@ function meter(){
     if(event){
       rec.monitor=false;rec.discard=false;rec.speechSeen=true;rec.lastLoud=now;rec.loudSince=event.startedAt
       rec.trimStartMs=Math.max(0,event.startedAt-rec.started-event.trimLeadMs)
-      interrupt();character.express('attentive');initiative.activity();reactionGate.mark()
+      interrupt();character.express('attentive',{source:'interrupt'});initiative.activity();reactionGate.mark()
       player.dataset.bargeLatencyMs=String(event.detectedAt-event.startedAt)
       notice('你说，鲸鲸在听。')
     }else if((!speaking&&!busy)||!canBargeIn()||now-rec.started>27000){rec.discard=true;recorder.stop()}
@@ -361,9 +377,9 @@ function meter(){
   }
   if(busy&&!rec.speechSeen)return
   bargeDetector.update({mic,active:false,enabled:false,now})
-  if(rms>.017){if(!rec.loudSince)rec.loudSince=now;if(now-rec.loudSince>=120){rec.speechSeen=true;rec.lastLoud=now}}
+  if(rms>.017){if(!rec.loudSince)rec.loudSince=now;if(now-rec.loudSince>=120){if(!rec.speechSeen)character.setInteraction?.({busy:true});rec.speechSeen=true;rec.lastLoud=now}}
   else rec.loudSince=0
-  if(rec.speechSeen&&rec.lastLoud&&now-rec.lastLoud>550){recorder.stop()}
+  if(rec.speechSeen&&rec.lastLoud&&now-rec.lastLoud>450){recorder.stop()}
   else if(now-rec.started>28000){rec.discard=!rec.speechSeen;recorder.stop()}
   else if(!rec.speechSeen&&now-rec.started>10000){rec.discard=true;recorder.stop()}
 }
@@ -389,7 +405,7 @@ function hangup({keepCamera=false}={}){
   stream?.getTracks().forEach(t=>t.stop());stream=null
   micProbe=null;echoCancellation=false;bargeDetector.reset();$('barge-status').textContent='开始语音陪聊后检测回声消除'
   void context?.close();context=null;analyser=null
-  interrupt();if(!keepCamera)stopCamera();else character.setGaze(null);$('heard').textContent='';controls()
+  interrupt();fingerGaze.reset();character.setGazeEnabled?.(false);if(!keepCamera)stopCamera();else character.setGaze(null);$('heard').textContent='';controls()
 }
 function mute(){
   muted=!muted;if(capture)capture.discard=true;if(recorder?.state==='recording')recorder.stop()
@@ -414,14 +430,13 @@ async function toggleCamera(){
   }catch(e){notice(e.name==='NotAllowedError'?'摄像头还没允许，不影响文字和语音聊天':'摄像头暂时不可用，请检查设备')}
   finally{cameraPending=false}
 }
-function stopCamera(){cameraEpoch++;videoObserver.stop();clearInterval(initiativeTimer);initiativeTimer=null;initiative.close();if(initiativeSpeech)interrupt();handTracker?.stop();handTracker=null;faceTracker?.stop();faceTracker=null;faceObservation=null;character.setGaze(null);camera?.getTracks().forEach(t=>t.stop());camera=null;$('preview').srcObject=null;$('camera-panel').hidden=true;$('camera').textContent='打开互动摄像头';$('auto-frame').checked=false;visionStatus()}
+function stopCamera(){cameraEpoch++;videoObserver.stop();clearInterval(initiativeTimer);initiativeTimer=null;initiative.close();if(initiativeSpeech)interrupt();handTracker?.stop();handTracker=null;faceTracker?.stop();faceTracker=null;faceObservation=null;fingerGaze.reset();character.setGazeEnabled?.(false);character.setGaze(null);character.resetAction?.();camera?.getTracks().forEach(t=>t.stop());camera=null;$('preview').srcObject=null;$('camera-panel').hidden=true;$('camera').textContent='打开互动摄像头';$('auto-frame').checked=false;visionStatus()}
 async function initiativeTick(){
   if(!camera)return
   const video=$('preview')
   const kind=initiative.next({ready:video.readyState>=2&&video.videoWidth>0,enabled:$('proactive-camera').checked,available:connected&&!document.hidden&&!busy&&!speaking&&!audioPending&&!capture?.speechSeen&&!$('input').value.trim()&&document.activeElement!==$('input')&&!sessionStorage.getItem('whale-pending')&&reactionGate.ready()})
   if(!kind)return
   reactionGate.mark()
-  character.greet()
   let image
   try{if($('auto-frame').checked)image=frame()}catch{/* An unreadable frame must not block a friendly opener. */}
   await send('主动陪聊',image,{initiative:kind,cameraLease:cameraEpoch})
@@ -434,7 +449,7 @@ function startFaceTracking(){
     if(busy||speaking||audioPending||capture?.speechSeen||$('input').value.trim()||document.activeElement===$('input')||Date.now()-cameraStarted<8000)return
     const response=faceResponse(state.code,{userText:Date.now()-lastUserAt<60000?lastUserText:'',variant:reactionVariant++})
     if(!response||!reactionGate.claim())return
-    character.express(response.expression)
+    character.express(response.expression,{source:'face'})
     void speak(response.text,epoch,true,{expression:response.expression})
   }})
   faceTracker.start()
@@ -442,12 +457,11 @@ function startFaceTracking(){
 function startHandTracking(){
   handTracker?.stop();handTracker=null
   if(!camera||!$('hand-follow').checked)return
-  handTracker=createHandTracker({video:$('preview'),overlay:$('hand-overlay'),onGaze:target=>character.setGaze(target),onStatus:text=>{if($('hand-status').textContent!==text)$('hand-status').textContent=text},onWave:()=>{
+  handTracker=createHandTracker({video:$('preview'),overlay:$('hand-overlay'),isGazeEnabled:()=>fingerGaze.active(),onGaze:target=>character.setGaze(target),onStatus:text=>{if($('hand-status').textContent!==text)$('hand-status').textContent=text},onWave:()=>{
     if(!camera||document.hidden)return
-    character.greet()
     if(busy||speaking||audioPending){$('hand-status').textContent='看到你挥手啦～等鲸鲸说完';return}
     if(capture?.speechSeen||$('input').value.trim()||document.activeElement===$('input')||!reactionGate.claim())return
-    $('hand-status').textContent='收到你的挥手啦，鲸鲸向你点头问好～'
+    $('hand-status').textContent='收到你的挥手啦，鲸鲸用声音向你问好～'
     void speak('你好呀，鲸鲸也向你打招呼～',epoch,true)
   }})
   handTracker.start()
@@ -466,7 +480,7 @@ $('test-voice').addEventListener('click',()=>{unlockPlayback();void speak('你�
 $('test-laugh').addEventListener('click',event=>void audition('laugh_1',event.currentTarget))
 $('test-cry').addEventListener('click',event=>void audition('cry_1',event.currentTarget))
 $('mute').addEventListener('click',mute);$('camera').addEventListener('click',()=>void toggleCamera());$('refresh').addEventListener('click',()=>void refresh())
-$('hand-follow').addEventListener('change',()=>{if($('hand-follow').checked)startHandTracking();else{handTracker?.stop();handTracker=null;character.setGaze(null);$('hand-status').textContent='手势互动已关闭，可以继续分享画面'}})
+$('hand-follow').addEventListener('change',()=>{if($('hand-follow').checked)startHandTracking();else{handTracker?.stop();handTracker=null;fingerGaze.reset();character.setGazeEnabled?.(false);character.setGaze(null);$('hand-status').textContent='手势互动已关闭，可以继续分享画面'}})
 $('face-follow').addEventListener('change',()=>{try{localStorage.setItem('whale-face-follow',$('face-follow').checked?'on':'off')}catch{};if($('face-follow').checked)startFaceTracking();else{faceTracker?.stop();faceTracker=null;faceObservation=null;$('face-status').textContent='面部动作识别已关闭'}})
 $('face-reply').addEventListener('change',()=>{try{localStorage.setItem('whale-face-reply',$('face-reply').checked?'on':'off')}catch{}})
 $('test-sigh').addEventListener('click',event=>void audition('sigh_1',event.currentTarget))
@@ -489,7 +503,7 @@ $('share').addEventListener('click',()=>{if(busy||audioPending)return;try{void s
 document.addEventListener('visibilitychange',()=>{if(document.hidden){videoObserver.stop();hangup({keepCamera:true})}else if(camera&&$('auto-frame').checked)videoObserver.start()});window.addEventListener('pagehide',()=>hangup())
 async function init(){
   controls();visionStatus()
-  try{const boot=await api('/api/bootstrap');csrf=boot.csrf;connected=true;$('connection').textContent='已连接 · 记忆沿用';$('connection').classList.add('online');await history();void refreshVoiceServices()}
+  try{const boot=await api('/api/bootstrap');csrf=boot.csrf;connected=true;$('connection').textContent='已连接 · 记忆沿用';$('connection').classList.add('online');await refresh();void refreshVoiceServices()}
   catch(e){notice(e.message);$('connection').textContent='暂未连接，请刷新页面'}
   controls()
 }

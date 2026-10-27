@@ -2,6 +2,8 @@ param([Parameter(Mandatory)][string]$Source,[Parameter(Mandatory)][string]$Outpu
 $ErrorActionPreference='Stop'
 $sourceRoot=(Resolve-Path -LiteralPath $Source).Path
 if(!(Test-Path -LiteralPath (Join-Path $sourceRoot 'README.md'))){throw 'Pass an audited public source export'}
+$version=([IO.File]::ReadAllText((Join-Path $sourceRoot 'installer/dependencies.json'))|ConvertFrom-Json).version
+if($version -notmatch '^\d+\.\d+\.\d+$'){throw 'Invalid application version'}
 $outputRoot=[IO.Path]::GetFullPath($Output)
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -23,7 +25,7 @@ $appZip=Join-Path $outputRoot 'app.zip';Make-Zip $sourceRoot $appZip $files
 $installer=Join-Path $sourceRoot 'installer'
 $scripts=Join-Path $outputRoot 'scripts.zip';Make-Zip $installer $scripts @(Get-ChildItem -LiteralPath $installer -File | Where-Object Extension -in '.mjs','.json','.py' | Sort-Object Name)
 $compiler=Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
-$exe=Join-Path $outputRoot 'WhaleGirl-Setup-0.4.0-win-x64.exe'
+$exe=Join-Path $outputRoot ('WhaleGirl-Setup-'+$version+'-win-x64.exe')
 & $compiler /nologo /target:winexe /platform:x64 /optimize+ /debug- /codepage:65001 /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Web.Extensions.dll /r:Microsoft.CSharp.dll "/win32manifest:$(Join-Path $installer 'app.manifest')" "/resource:$appZip,app.zip" "/resource:$scripts,scripts.zip" "/out:$exe" (Join-Path $installer 'Bootstrap.cs')
 if($LASTEXITCODE){throw 'Native setup compilation failed'}
 $sum=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()

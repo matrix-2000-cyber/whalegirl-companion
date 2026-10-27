@@ -16,3 +16,10 @@ test('sentence feed holds fragments, speaks completed sentences once and rejects
  assert.throws(()=>feed.update('换个回答。',true),/修订/)
  const tail=createSentenceFeed();assert.deepEqual(tail.update('没标点也可以',true),['没标点也可以'])
 })
+test('early speech uses a meaningful first clause, preserves words, and does not split numbers or short greetings',()=>{
+ const feed=createSentenceFeed({earlyFirstClause:true})
+ assert.deepEqual(feed.update('爸爸，今天外面的天气还挺好的，'),['爸爸，今天外面的天气还挺好的，'])
+ assert.deepEqual(feed.update('爸爸，今天外面的天气还挺好的，咱们可以聊两句。'),['咱们可以聊两句。'])
+ const greeting=createSentenceFeed({earlyFirstClause:true});assert.deepEqual(greeting.update('爸爸，'),[])
+ const number=createSentenceFeed({earlyFirstClause:true});assert.deepEqual(number.update('今天一共需要支付1,234元'),[])
+})

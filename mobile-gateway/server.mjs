@@ -5,7 +5,8 @@ import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { withVisionFallback } from './vision-fallback.mjs'
-import {initiativePrompts,initiativePrompt,INITIATIVE_COOLDOWN} from './initiative.mjs'
+import {initiativePrompts,initiativePrompt,chooseFamilyTopic,INITIATIVE_COOLDOWN} from './initiative.mjs'
+import {voiceReplyStyle} from '../bridge-src/conversation-style.js'
 import {createVisionCache} from './vision-cache.mjs'
 import {bridgeKeyPath,dshOrigin,gatewayPort,gatewayRoot} from './runtime.mjs'
 
@@ -95,15 +96,15 @@ export function app({ store, backend, now = Date.now, adminKey = '',analyze=loca
         const initiative=Object.hasOwn(initiativePrompts,input.initiative)?input.initiative:null
         if(input.initiative&&!initiative)return json(res,400,{error:'主动话题类型无效'})
         if(initiative&&Object.values(store.data.jobs).some(j=>j.principalId===pid&&j.initiative&&now()-j.created<INITIATIVE_COOLDOWN))return json(res,429,{error:'刚刚主动聊过，先等你回应'})
-        const text = initiative?initiativePrompt(initiative,!!input.image||!!(input.useVision&&vision.read(device.id))):String(input.text || '').trim()
+        const topic=initiative&&device.principal.role==='owner'?chooseFamilyTopic(Object.values(store.data.jobs).filter(j=>j.principalId===pid)):null
+        const text = initiative?initiativePrompt(initiative,!!input.image||!!(input.useVision&&vision.read(device.id)),{owner:device.principal.role==='owner',topic}):String(input.text || '').trim()
         if (!text || [...text].length > 2000) return json(res, 400, { error: '请输入1到2000字' })
-        // Live-video turns need a longer, self-driven answer. The bridge's own
-        // system notice is loaded at plugin start, so enforce it here as well.
+        // Keep the gateway and bridge aligned; long answers are opt-in by context.
         const bridgeText = input.realtime === true && !initiative
-          ? '[视频通话模式] 主动带话题，一次说 150–250 字（约 1–2 分钟）：先回应，再自然展开一个小观察、小故事或问题；不要只一两句，也不要长篇独白到停不下来。\n' + text
+          ? '[视频通话模式] '+voiceReplyStyle({owner:device.principal.role==='owner'})+'\n'+text
           : text
         if (input.image && (typeof input.image !== 'string' || input.image.length > 440_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(input.image))) return json(res, 400, { error: '画面格式或大小不支持' })
-        const job = { id: input.id, principalId: pid, status: 'pending', created: now(),...(initiative?{initiative}:{}) }
+        const job = { id: input.id, principalId: pid, status: 'pending', created: now(),...(initiative?{initiative}:{}),...(topic?{interactionTopic:topic.id}:{}) }
         store.data.jobs[input.id] = job
         const history = store.data.history[pid] ||= []
         if(!initiative)history.push({ id: input.id, role: 'user', text, at: now() })

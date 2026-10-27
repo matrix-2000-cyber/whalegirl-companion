@@ -3259,7 +3259,7 @@ export function apply(ctx, config) {
     try {
       const routes = [
         [ '/api/qq-bridge/runtime', napcatRoute('GET', () => ({
-          ok: true, revision: 'installer-20261026', managedInstance: process.env.WHALEGIRL_MANAGED === '1' ? process.env.WHALEGIRL_INSTANCE_ID : undefined, limits: { messageChars: MESSAGE_CHARS, turnMessages: TURN_MESSAGES },
+          ok: true, revision: 'installer-20261026', conversationStyle: 'family-dialogue-20261026', managedInstance: process.env.WHALEGIRL_MANAGED === '1' ? process.env.WHALEGIRL_INSTANCE_ID : undefined, limits: { messageChars: MESSAGE_CHARS, turnMessages: TURN_MESSAGES },
           cameraVision: cameraVision.status(),
           mobile: mobile.status(),
           tokenEconomy: { active: true, shortChatEffort: 'low (first request only)', memoryPolicy: 'unchanged', ...(tokenPolicies.get(ctx.agents.get(readSettings().targetSessionId)) ?? {}) },

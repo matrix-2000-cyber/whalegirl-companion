@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { app, Store } from '../server.mjs'
-import {initiativePrompt} from '../initiative.mjs'
+import {initiativePrompt,familyTopics} from '../initiative.mjs'
 
 async function fixture(t, backend = async () => ({ text: '在呀～' }),extra={}) {
   const dir = mkdtempSync(join(tmpdir(), 'whale-mobile-')), path = join(dir, 'state.json')
@@ -89,7 +89,7 @@ test('initiative is a bounded app event, not a fabricated user message; retries 
  const token=await f.pair(f.owner),id=randomUUID()
  assert.equal((await f.request('/v1/chat',token,{id,initiative:'camera-open',text:'untrusted replacement'})).status,202)
  for(let n=0;n<30&&f.store.data.jobs[id].status==='pending';n++)await new Promise(r=>setTimeout(r,5))
- assert.equal(calls[0].text,initiativePrompt('camera-open',false))
+ assert.equal(calls[0].text,initiativePrompt('camera-open',false,{owner:true,topic:familyTopics[0]}))
  assert.equal(calls[0].initiative,'camera-open')
  assert.match(calls[0].text,/无新镜头，不描述外貌衣着/)
  const messages=(await f.request('/v1/history',token)).body.messages

@@ -5,7 +5,8 @@ import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { desktopClient } from './gateway-client.mjs'
 import { createTranscriber } from './audio.mjs'
-import { createSpeaker,createSpeechStreamer } from './tts.mjs'
+import { createSpeaker } from './tts.mjs'
+import {createWarmSpeechService} from './warm-tts.mjs'
 import { formatReply } from './public/speech-text.mjs'
 import { createAliyunVoice } from './aliyun-voice.mjs'
 import {createWarmRecognizer} from './warm-asr.mjs'
@@ -91,6 +92,13 @@ export function desktopApp({ gateway, transcribe, synthesize, streamSpeech,audio
         res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});res.end(readFileSync(join(publicRoot,'hud.html')));return
       }
       const assets={'/app.js':['app.js','text/javascript; charset=utf-8'],'/avatar.mjs':['avatar.mjs','text/javascript; charset=utf-8'],'/hand-tracker.mjs':['hand-tracker.mjs','text/javascript; charset=utf-8'],'/hand-rules.mjs':['hand-rules.mjs','text/javascript; charset=utf-8'],'/hand-worker.js':['hand-worker.js','text/javascript; charset=utf-8'],'/speech-text.mjs':['speech-text.mjs','text/javascript; charset=utf-8'],'/voice-emotion.mjs':['voice-emotion.mjs','text/javascript; charset=utf-8'],'/whalegirl-atlas.png':['whalegirl-atlas.png','image/png'],'/style.css':['style.css','text/css; charset=utf-8'],'/whale.png':['whale.png','image/png']}
+      assets['/standing-policy.mjs']=['standing-policy.mjs','text/javascript; charset=utf-8']
+      assets['/mouth-sync.mjs']=['mouth-sync.mjs','text/javascript; charset=utf-8']
+      assets['/pending-turn.mjs']=['pending-turn.mjs','text/javascript; charset=utf-8']
+      assets['/finger-gaze.mjs']=['finger-gaze.mjs','text/javascript; charset=utf-8']
+      assets['/standing/front.png']=['standing/front.png','image/png']
+        for(const name of ['blink-open','blink-half','blink-closed',...Array.from({length:7},(_,i)=>'blink-'+i)])assets['/standing/'+name+'.png']=['standing/'+name+'.png','image/png']
+      for(const action of ['wave','smile','sigh','shy','bow'])assets['/standing/'+action+'.webm']=['standing/'+action+'.webm','video/webm']
       if(req.method==='GET'&&vendorAssets[path]){const [file,type]=vendorAssets[path];res.writeHead(200,{'content-type':type,'cache-control':'private, max-age=3600'});res.end(readFileSync(join(runtimeRoot,file)));return}
       assets['/hud.css']=['hud.css','text/css; charset=utf-8']
       assets['/study.css']=['study.css','text/css; charset=utf-8']
@@ -141,7 +149,7 @@ export function desktopApp({ gateway, transcribe, synthesize, streamSpeech,audio
         const close=()=>{if(!res.writableEnded)controller.abort()};res.on('close',close)
         res.writeHead(200,{'content-type':'application/x-ndjson; charset=utf-8','cache-control':'no-store','x-accel-buffering':'no'})
         try{for await(const event of liveChat({gateway,id:input.id,text:input.text,image:input.image,useVision:input.useVision===true,faceCue:['smile','brow','raisedBrows','downturned','mouthOpen','eyesClosed','nod','shake','neutral'].includes(input.faceCue)?input.faceCue:undefined,initiative:['camera-open','idle'].includes(input.initiative)?input.initiative:undefined,signal:controller.signal}))res.write(JSON.stringify(event)+'\n')}
-        catch(e){if(!controller.signal.aborted)res.write(JSON.stringify({type:'error',error:e.message?.slice(0,180)||'对话中断'})+'\n')}
+        catch(e){if(!controller.signal.aborted)res.write(JSON.stringify({type:'error',error:e.message?.slice(0,180)||'对话中断',...(Number.isInteger(e.status)?{status:e.status}:{})})+'\n')}
         finally{res.off('close',close);res.end()}
         return
       }
@@ -161,7 +169,7 @@ export function desktopApp({ gateway, transcribe, synthesize, streamSpeech,audio
         return
       }
       return json(res,404,{error:'没有这个功能'})
-    } catch(e) {if(!res.headersSent) json(res,502,{error:e.message?.slice(0,180)||'暂时连不上鲸鱼娘，请稍后再试'});else res.end()}
+    } catch(e) {if(!res.headersSent) json(res,Number.isInteger(e.status)&&e.status>=400&&e.status<=599?e.status:502,{error:e.message?.slice(0,180)||'暂时连不上鲸鱼娘，请稍后再试'});else res.end()}
   }
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
@@ -171,10 +179,12 @@ if(process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).
   const transcribe=createTranscriber({root:join(root,'pc-audio'),decode:recognizer.decode})
   void recognizer.ready().catch(()=>{})
   const synthesize=createSpeaker({root:join(root,'pc-speech')})
-  const streamSpeech=createSpeechStreamer({root:join(root,'pc-speech')})
+  const speechService=createWarmSpeechService()
+  void speechService.ready().catch(()=>{})
   const paid=createAliyunVoice({root})
-  const server=createServer(desktopApp({gateway,port,transcribe,audioStatus:recognizer.status,synthesize:(text,style)=>style==='aliyun'?paid.synthesize(text):synthesize(text,style),streamSpeech:(text,style,signal)=>style==='aliyun'?paid.stream(text,signal):streamSpeech(text,style,signal),paidVoiceStatus:paid.status}))
+  const server=createServer(desktopApp({gateway,port,transcribe,audioStatus:()=>({...recognizer.status(),speech:speechService.status()}),synthesize:(text,style)=>style==='aliyun'?paid.synthesize(text):synthesize(text,style),streamSpeech:(text,style,signal)=>style==='aliyun'?paid.stream(text,signal):speechService.stream(text,style,signal),paidVoiceStatus:paid.status}))
   server.on('close',recognizer.close)
+  server.on('close',speechService.close)
   server.requestTimeout=120000;server.headersTimeout=15000
   server.listen(port,'127.0.0.1',()=>console.log('WhaleGirl desktop ready on loopback port '+port))
 }

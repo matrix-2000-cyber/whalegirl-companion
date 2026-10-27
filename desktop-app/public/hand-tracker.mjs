@@ -1,5 +1,5 @@
 import {fingertipTarget,createWaveDetector} from './hand-rules.mjs'
-export function createHandTracker({video,overlay,onGaze,onWave,onStatus}){
+export function createHandTracker({video,overlay,onGaze,onWave,onStatus,isGazeEnabled=()=>false}){
   let worker=null,stopped=false,timer=null,loadingTimer=null,inFlight=false,lastVideoTime=-1
   const wave=createWaveDetector(),ctx=overlay.getContext('2d')
   let lastSeen=0,lostTimer=null
@@ -24,7 +24,7 @@ export function createHandTracker({video,overlay,onGaze,onWave,onStatus}){
     worker.onmessage=event=>{
       if(stopped)return
       if(event.data.type==='ready'){
-        clearTimeout(loadingTimer);onStatus('把食指放进画面，她会看过去；张开手掌左右挥动可打招呼')
+        clearTimeout(loadingTimer);onStatus('可挥手问好；说“看我的手指”后才开启指尖注视')
         timer=setInterval(()=>void capture(),125);void capture();return
       }
       if(event.data.type==='error'){fail(event.data.message);return}
@@ -32,15 +32,16 @@ export function createHandTracker({video,overlay,onGaze,onWave,onStatus}){
       inFlight=false
       const points=event.data.points,target=fingertipTarget(points),now=performance.now()
       if(target){
-        lastSeen=now;clearTimeout(lostTimer);onGaze(target)
+        const following=isGazeEnabled()
+        lastSeen=now;clearTimeout(lostTimer);onGaze(following?target:null)
         ctx.clearRect(0,0,overlay.width,overlay.height)
         ctx.fillStyle='#64eff2';ctx.strokeStyle='#ffffff';ctx.lineWidth=3
-        ctx.beginPath();ctx.arc(target.x*overlay.width,target.y*overlay.height,8,0,Math.PI*2);ctx.fill();ctx.stroke()
-        onStatus('看到你的手了 · 眼睛正在跟随食指')
+        if(following){ctx.beginPath();ctx.arc(target.x*overlay.width,target.y*overlay.height,8,0,Math.PI*2);ctx.fill();ctx.stroke()}
+        onStatus(following?'看到你的手了 · 正在执行指尖注视':'已识别手势 · 需要注视时请说“看我的手指”')
         if(wave.update(points,now))onWave()
       }else{
         wave.reset();ctx.clearRect(0,0,overlay.width,overlay.height)
-        if(now-lastSeen>600){clearTarget();onStatus('手暂时离开画面了，再伸出食指试试')}
+        if(now-lastSeen>600){clearTarget();onStatus(isGazeEnabled()?'指尖注视中 · 把食指放回画面即可':'等待手势 · 说“看我的手指”才会注视')}
         else{clearTimeout(lostTimer);lostTimer=setTimeout(clearTarget,650)}
       }
     }

@@ -43,3 +43,7 @@ main{display:block;position:relative;max-width:1800px;height:calc(100dvh - 28px)
 .voice-settings:not([hidden]){display:flex}
 #face-status{font-size:9px;line-height:1.6;color:#d0ddc1;margin:7px 0}
 #paid-voice-status{width:100%;margin:2px 0;font-size:9px;line-height:1.7;color:#cfddbc}
+/* Native-size standing character; the original study background stays untouched. */
+.presence{display:block;padding:0}.character-space{position:absolute;left:50%;top:calc(85% - 330px);width:640px;height:360px;margin:0 0 0 -320px;padding:0;display:block;flex:none}
+.avatar.character-stage{position:relative;width:640px!important;height:360px!important;max-width:none;max-height:none;aspect-ratio:16/9;margin:0;border-radius:0;background:none;filter:none;animation:none;transform:none}
+.character-stage canvas{width:640px;height:360px;max-width:none;filter:none;object-fit:contain}

@@ -1,4 +1,4 @@
-# DSH bridge (customized 0.4.0)
+# DSH bridge (customized 0.5.0)
 
 MIT-derived from [sj244/dsh-qq-bridge](https://github.com/sj244/dsh-qq-bridge). Original copyright is preserved in LICENSE.
 

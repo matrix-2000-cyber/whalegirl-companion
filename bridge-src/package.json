@@ -64,6 +64,7 @@
     "voice-in.js",
     "persona.txt",
     "mobile.js",
+    "conversation-style.js",
     "camera-vision.js",
     "reply-progress.js",
     "realtime-session.js",

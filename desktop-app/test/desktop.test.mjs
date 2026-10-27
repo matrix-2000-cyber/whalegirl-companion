@@ -13,7 +13,7 @@ test('desktop is no-QR but requires a local session and CSRF; remote pages canno
   const server=createServer((req,res)=>handler(req,res))
   await new Promise(r=>server.listen(0,'127.0.0.1',r))
   const port=server.address().port,origin='http://127.0.0.1:'+port
-  handler=desktopApp({port,gateway:async(path,data)=>{calls.push({path,data});return path==='/v1/me'?{principal:{name:'爸爸'}}:path==='/v1/history'?{messages:[]}:{status:'done',text:'在呀～'}},transcribe:async()=> '你好',synthesize:async(text,style)=>{calls.push({speech:text,style});return {audio:'fake',mime:'audio/mpeg'}},streamSpeech:async function*(){yield Buffer.from('audio-');yield Buffer.from('stream')}})
+  handler=desktopApp({port,gateway:async(path,data)=>{calls.push({path,data});if(path.startsWith('/v1/jobs/'))throw Object.assign(Error('没有这条消息'),{status:404});return path==='/v1/me'?{principal:{name:'爸爸'}}:path==='/v1/history'?{messages:[]}:{status:'done',text:'在呀～'}},transcribe:async()=> '你好',synthesize:async(text,style)=>{calls.push({speech:text,style});return {audio:'fake',mime:'audio/mpeg'}},streamSpeech:async function*(){yield Buffer.from('audio-');yield Buffer.from('stream')}})
   t.after(()=>new Promise(r=>server.close(r)))
   const request=(path,headers={},data)=>new Promise((resolve,reject)=>{
     const req=httpRequest(origin+path,{method:data?'POST':'GET',headers:{'content-type':'application/json',...headers}},res=>{
@@ -29,6 +29,8 @@ test('desktop is no-QR but requires a local session and CSRF; remote pages canno
   assert.equal(boot.name,'爸爸')
   assert.deepEqual(Object.keys(boot).sort(),['csrf','name'])
   const valid={cookie,origin,'x-whale-csrf':boot.csrf}
+  const missing=await request('/api/jobs/00000000-0000-0000-0000-000000000000',valid)
+  assert.equal(missing.status,404);assert.equal((await missing.json()).error,'没有这条消息')
   assert.equal((await request('/api/chat',{cookie,origin},{text:'missing csrf'})).status,403)
   assert.equal((await request('/api/speech',{cookie,origin},{text:'missing csrf'})).status,403)
   assert.equal((await request('/api/speech-stream',{cookie,origin},{text:'missing csrf'})).status,403)

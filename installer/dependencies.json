@@ -1,5 +1,5 @@
 {
-  "version": "0.4.0",
+  "version": "0.5.0",
   "mediapipe": "1.1.1",
   "memory": "0.31.0",
   "pythonPackages": [

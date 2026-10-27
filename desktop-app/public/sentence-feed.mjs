@@ -1,10 +1,10 @@
-export function createSentenceFeed(){
+export function createSentenceFeed({earlyFirstClause=false}={}){
   let committed='',last='';const seen=new Set()
   return {update(text,done=false){
     text=String(text||'')
     if(!text.startsWith(committed))throw Error('回答发生修订，已停止旧声音，请查看文字')
     const result=[];let cursor=committed.length,start=cursor
-    for(;cursor<text.length;cursor++)if(/[。！？!?；;\n~～]/u.test(text[cursor])){
+    for(;cursor<text.length;cursor++)if(/[。！？!?；;\n~～]/u.test(text[cursor])||(earlyFirstClause&&!committed.length&&!result.length&&/[，,]/u.test(text[cursor])&&Array.from(text.slice(start,cursor).replace(/[\s“”‘’「」『』]/gu,'')).length>=8&&!/\d,\d/.test(text.slice(cursor-1,cursor+2)))){
       while(/[。！？!?；;”’」』"]/.test(text[cursor+1]||'\0'))cursor++
       result.push(text.slice(start,cursor+1));start=cursor+1
     }

@@ -17,16 +17,19 @@ if os.environ.get('WHALE_TTS_USE_SYSTEM_PROXY') != '1':
         return _session(*args, **kwargs)
     aiohttp.ClientSession = _tts_session
 
-async def main():
-    text = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
+def communicator(text, style):
     if not text.strip() or len(text) > 2000:
         raise ValueError('Invalid speech length')
     voices = {
         'cute': ('zh-CN-XiaoyiNeural', '-6%', '+18Hz'),
         'gentle': ('zh-CN-XiaoxiaoNeural', '-8%', '+6Hz'),
     }
-    voice, rate, pitch = voices[sys.argv[3]]
-    speech=edge_tts.Communicate(text, voice, rate=rate, pitch=pitch, proxy=os.environ.get('WHALE_TTS_PROXY') or None)
+    voice, rate, pitch = voices[style]
+    return edge_tts.Communicate(text, voice, rate=rate, pitch=pitch, proxy=os.environ.get('WHALE_TTS_PROXY') or None)
+
+async def main():
+    text = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
+    speech=communicator(text,sys.argv[3])
     if sys.argv[2] == '-':
         async for chunk in speech.stream():
             if chunk['type'] == 'audio':
@@ -35,4 +38,5 @@ async def main():
     else:
         await speech.save(sys.argv[2])
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())

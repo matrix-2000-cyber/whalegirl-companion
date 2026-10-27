@@ -14,8 +14,8 @@ using System.Web.Script.Serialization;
 
 [assembly: AssemblyTitle("WhaleGirl Companion Setup")]
 [assembly: AssemblyCompany("WhaleGirl Companion contributors")]
-[assembly: AssemblyVersion("0.4.0.0")]
-[assembly: AssemblyFileVersion("0.4.0.0")]
+[assembly: AssemblyVersion("0.5.0.0")]
+[assembly: AssemblyFileVersion("0.5.0.0")]
 class SetupForm : Form {
  TextBox location=new TextBox(),details=new TextBox(); Label status=new Label(); ProgressBar progress=new ProgressBar();
  Button primary=new Button(),model=new Button(),logs=new Button(); CheckBox direct=new CheckBox();
